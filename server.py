@@ -216,7 +216,8 @@ def get_recent_connections():
                     'time': time, 'client': client, 'dest': f"{dest_ip}:{port}",
                     'domain': domain, 'route': route, 'route_class': 'direct' if route == 'direct' else 'vless'
                 })
-        return connections[:30]
+        connections.reverse()
+        return connections[:50]
     except Exception as e:
         print("Ошибка чтения логов Xray:", e)
         return []
