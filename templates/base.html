@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ZX Panel</title>
+    <link rel="icon" type="image/x-icon" href="/static/logo.ico">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+<div class="mobile-header">
+    <button class="btn btn-link text-dark p-0" onclick="toggleSidebar()">
+        <span class="material-symbols-outlined" style="font-size: 30px;">menu</span>
+    </button>
+    <div class="d-flex align-items-center gap-2">
+        <img src="/static/zx_logo.svg" alt="Logo" class="mobile-header-logo">
+        <h5 class="mb-0 fw-bold text-dark">ZX Panel</h5>
+    </div>
+    <div style="width: 30px;"></div> <!-- Пустой блок для выравнивания -->
+</div>
+
+<div class="sidebar" id="sidebar">
+    <div class="sidebar-header d-flex align-items-center justify-content-center gap-2">
+        <img src="/static/zx_logo.svg" alt="Logo" class="sidebar-logo">
+        <h4 class="mb-0 fw-bold text-dark">ZX Panel</h4>
+    </div>
+    <div class="sidebar-nav">
+        <a href="/bots" class="nav-link {% if request.path == '/bots' %}active{% endif %}">
+            <span class="material-symbols-outlined">smart_toy</span> Боты
+        </a>
+        
+        <a href="/services" class="nav-link {% if request.path == '/services' %}active{% endif %}">
+            <span class="material-symbols-outlined">settings_applications</span> Системные сервисы
+        </a>
+
+        <a href="/monitor" class="nav-link {% if request.path == '/monitor' %}active{% endif %}">
+            <span class="material-symbols-outlined">query_stats</span> Диспетчер задач
+        </a>
+        
+        <a href="/vpn" class="nav-link {% if request.path == '/vpn' %}active{% endif %}">
+            <span class="material-symbols-outlined">vpn_lock</span> VPN (Xray)
+        </a>
+    </div>
+    <div class="sidebar-footer">
+        <a href="/logout" class="nav-link text-danger">
+            <span class="material-symbols-outlined">logout</span> Выйти
+        </a>
+    </div>
+</div>
+
+<div class="main-content">
+    {% block content %}{% endblock %}
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    function toggleSidebar() {
+        document.getElementById('sidebar').classList.toggle('open');
+        document.getElementById('sidebarOverlay').classList.toggle('active');
+        document.body.style.overflow = document.getElementById('sidebar').classList.contains('open') ? 'hidden' : '';
+    }
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

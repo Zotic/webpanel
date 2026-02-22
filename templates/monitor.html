@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="fw-bold text-secondary mb-0">Мониторинг сервера</h2>
+    <span class="badge bg-primary fs-6" id="updateTimer">Обновление...</span>
+</div>
+
+<!-- Верхний блок с основными метриками -->
+<div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-4 mb-4">
+    <!-- CPU -->
+    <div class="col">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title text-muted mb-0 fw-bold">CPU</h5>
+                    <span class="material-symbols-outlined text-primary fs-2">memory</span>
+                </div>
+                <h3 class="fw-bold mb-2" id="cpuText">0%</h3>
+                <div class="progress" style="height: 10px;">
+                    <div id="cpuBar" class="progress-bar bg-primary" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- RAM -->
+    <div class="col">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title text-muted mb-0 fw-bold">ОЗУ (RAM)</h5>
+                    <span class="material-symbols-outlined text-success fs-2">memory_alt</span>
+                </div>
+                <h3 class="fw-bold mb-0" id="ramText">0%</h3>
+                <small class="text-muted" id="ramDetails">0 GB / 0 GB</small>
+                <div class="progress mt-2" style="height: 10px;">
+                    <div id="ramBar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- SWAP -->
+    <div class="col">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title text-muted mb-0 fw-bold">Файл подкачки (SWAP)</h5>
+                    <span class="material-symbols-outlined text-warning fs-2">swap_horiz</span>
+                </div>
+                <h3 class="fw-bold mb-0" id="swapText">0%</h3>
+                <small class="text-muted" id="swapDetails">0 GB / 0 GB</small>
+                <div class="progress mt-2" style="height: 10px;">
+                    <div id="swapBar" class="progress-bar bg-warning" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- DISK -->
+    <div class="col">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title text-muted mb-0 fw-bold">Место на диске</h5>
+                    <span class="material-symbols-outlined text-info fs-2">hard_drive</span>
+                </div>
+                <h3 class="fw-bold mb-0" id="diskText">0%</h3>
+                <small class="text-muted" id="diskDetails">0 GB / 0 GB</small>
+                <div class="progress mt-2" style="height: 10px;">
+                    <div id="diskBar" class="progress-bar bg-info" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Таблица процессов -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom-0 py-3 d-flex justify-content-between align-items-center">
+        <h5 class="fw-bold mb-0">Активные процессы</h5>
+        <input type="text" id="procSearch" class="form-control form-control-sm" placeholder="Поиск процесса..." style="width: 200px;">
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+            <table class="table table-hover align-middle mb-0" style="font-size: 0.9rem;">
+                <thead class="table-light position-sticky top-0" style="z-index: 1;">
+                    <tr>
+                        <th class="ps-4">PID</th>
+                        <!-- Кликабельные заголовки для сортировки -->
+                        <th class="cursor-pointer" onclick="changeSort('name')">Имя <span id="sort-name" class="text-muted"></span></th>
+                        <th>Путь / Команда</th>
+                        <th class="cursor-pointer text-center" onclick="changeSort('cpu')">CPU % <span id="sort-cpu" class="text-muted">▼</span></th>
+                        <th class="cursor-pointer text-center pe-4" onclick="changeSort('ram')">RAM % <span id="sort-ram" class="text-muted"></span></th>
+                    </tr>
+                </thead>
+                <tbody id="processList">
+                    <tr><td colspan="5" class="text-center py-4 text-muted">Загрузка данных...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/monitor.js"></script>
+{% endblock %}

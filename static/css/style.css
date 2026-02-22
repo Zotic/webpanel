@@ -1,0 +1,112 @@
+body { background-color: #f0f2f5; font-family: 'Roboto', sans-serif; margin: 0; overflow-x: hidden; }
+
+/* --- Боковое меню (Sidebar) --- */
+.sidebar {
+    width: 260px; position: fixed; top: 0; left: 0; height: 100vh;
+    background: #ffffff; box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+    z-index: 1000; display: flex; flex-direction: column;
+    transition: transform 0.3s ease-in-out;
+}
+.sidebar-header { padding: 20px; text-align: center; border-bottom: 1px solid #f0f0f0; }
+.sidebar-logo { max-height: 40px; max-width: 100%; object-fit: contain; }
+.sidebar-nav { flex: 1; padding: 15px 10px; overflow-y: auto; }
+.nav-link {
+    display: flex; align-items: center; gap: 12px; padding: 12px 15px;
+    color: #555; border-radius: 8px; text-decoration: none; font-weight: 500;
+    transition: all 0.2s; margin-bottom: 5px;
+}
+.nav-link:hover { background-color: #f5f5f5; color: #2196f3; }
+.nav-link.active { background-color: #e3f2fd; color: #2196f3; }
+.sidebar-footer { padding: 15px; border-top: 1px solid #f0f0f0; }
+
+/* --- Мобильная шапка и Overlay --- */
+.mobile-header {
+    display: none; position: fixed; top: 0; left: 0; right: 0; height: 60px;
+    background: #ffffff; box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    z-index: 900; align-items: center; justify-content: space-between; padding: 0 15px;
+}
+.mobile-header-logo { max-height: 30px; }
+.sidebar-overlay {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.4); z-index: 990; backdrop-filter: blur(2px);
+}
+
+/* Основной контент */
+.main-content { margin-left: 260px; padding: 30px; min-height: 100vh; transition: margin 0.3s ease-in-out; }
+
+/* Карточки */
+.card { border: none; border-radius: 12px; box-shadow: 0 2px 4px -1px rgba(0,0,0,0.1), 0 4px 5px 0 rgba(0,0,0,0.06); transition: box-shadow 0.3s; }
+.card:hover { box-shadow: 0 5px 5px -3px rgba(0,0,0,0.1), 0 8px 10px 1px rgba(0,0,0,0.06); }
+
+/* Боты */
+.bot-card { height: 320px; display: flex; flex-direction: column; }
+.card-header { background-color: #fff; border-bottom: 1px solid #e0e0e0; border-radius: 12px 12px 0 0 !important; padding: 15px; }
+.card-body-wrapper { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: 15px; }
+.log-container { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; margin-bottom: 15px; }
+.log-box { flex: 1; background: #1e1e1e; color: #4af626; font-family: 'Courier New', monospace; font-size: 0.85rem; padding: 12px; overflow-y: auto; min-height: 0; border-radius: 8px; white-space: pre-wrap; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5); word-break: break-all; }
+
+/* Кнопка полного экрана внутри консоли */
+.fullscreen-btn {
+    position: absolute;
+    top: 8px;
+    right: 18px; /* Отодвинута влево, чтобы не конфликтовать со скроллом */
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(3px);
+    border: none;
+    color: #eee;
+    border-radius: 6px;
+    cursor: pointer;
+    z-index: 10;
+    padding: 0;
+    transition: all 0.2s ease;
+}
+.fullscreen-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    color: #fff;
+}
+.fullscreen-btn .material-symbols-outlined {
+    font-size: 20px;
+    margin: 0;
+    padding: 0;
+    display: block;
+}
+
+
+.log-box::-webkit-scrollbar { width: 8px; }
+.log-box::-webkit-scrollbar-track { background: #1e1e1e; border-radius: 8px; }
+.log-box::-webkit-scrollbar-thumb { background: #555; border-radius: 8px; }
+.action-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.action-btn { width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: none; color: white; cursor: pointer; box-shadow: 0 3px 5px -1px rgba(0,0,0,0.1); transition: all 0.2s; }
+.action-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 8px -1px rgba(0,0,0,0.15); }
+.btn-green { background-color: #4caf50; } .btn-red { background-color: #f44336; } .btn-blue { background-color: #2196f3; } .btn-orange { background-color: #ff9800; } .btn-dark { background-color: #607d8b; }
+.badge { font-weight: 500; padding: 6px 10px; border-radius: 6px; font-size: 0.8rem; }
+.file-list { max-height: 400px; overflow-y: auto; }
+.full-log-box { height: 75vh; font-size: 0.95rem; border-radius: 0; margin-bottom: 0; }
+
+/* VPN */
+.table { font-size: 0.95rem; }
+.table thead th { background-color: #f8f9fa; border-bottom: 2px solid #dee2e6; color: #555; font-weight: 600; }
+.route-direct { color: #4CAF50; font-weight: bold; }
+.route-vless { color: #2196F3; font-weight: bold; }
+.vpn-status.active { background: #4CAF50; color: white; padding: 4px 10px; border-radius: 6px; }
+.vpn-status.inactive { background: #f44336; color: white; padding: 4px 10px; border-radius: 6px; }
+
+/* Авторизация */
+.login-page { height: 100vh; display: flex; align-items: center; justify-content: center; background-color: #f0f2f5; margin: 0; }
+.login-card { width: 100%; max-width: 400px; padding: 40px; border-radius: 16px; }
+.login-logo { max-width: 150px; margin-bottom: 20px; }
+
+/* === МЕДИАЗАПРОСЫ ДЛЯ МОБИЛОК === */
+@media (max-width: 991px) {
+    .sidebar { transform: translateX(-100%); } /* Прячем меню */
+    .sidebar.open { transform: translateX(0); } /* Показываем меню */
+    .mobile-header { display: flex; } /* Показываем мобильную шапку */
+    .sidebar-overlay.active { display: block; } /* Показываем темный фон */
+    .main-content { margin-left: 0; padding: 80px 15px 20px 15px; } /* Сдвигаем контент вниз из-за шапки */
+    .bot-card { height: 400px; } /* Делаем карточки чуть выше на мобилках */
+}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <h2 class="fw-bold text-secondary mb-0">Сервисы сервера</h2>
+    
+    <div class="d-flex flex-wrap gap-2 flex-grow-1 justify-content-lg-end">
+        <input type="text" id="searchInput" onkeyup="filterServices()" class="form-control shadow-sm" placeholder="Поиск сервиса (например, nginx)..." style="max-width: 300px; border-radius: 8px;">
+        <button id="autoRefreshBtn" class="btn btn-secondary shadow-sm" onclick="toggleAutoRefresh()" style="border-radius: 8px; white-space: nowrap;">
+            Автообновление: ВЫКЛ
+        </button>
+    </div>
+</div>
+
+<div class="row row-cols-1 row-cols-lg-2 row-cols-xl-3 g-4" id="botsContainer">
+    {% for svc in services %}
+    <div class="col bot-col" id="bot-{{ svc.name }}">
+        <div class="card bot-card">
+            <div class="card-header d-flex justify-content-between align-items-start">
+                <div style="max-width: 70%;">
+                    <strong class="text-truncate d-block" title="{{ svc.name }}">{{ svc.name }}</strong>
+                    <!-- Обычный вывод пути без иконок -->
+                    <small class="text-muted d-block text-truncate" title="{{ svc.path }}" style="font-size: 0.75rem;">
+                        {{ svc.path }}
+                    </small>
+                </div>
+                <span id="badge-{{ svc.name }}" class="badge {% if svc.active %}bg-success{% else %}bg-danger{% endif %} mt-1">
+                    {% if svc.active %}Активен{% else %}Остановлен{% endif %}
+                </span>
+            </div>
+            <div class="card-body-wrapper">
+                <div class="log-container">
+                    <button class="fullscreen-btn" onclick="openFullLogs('{{ svc.name }}')" title="На полный экран">
+                        <span class="material-symbols-outlined">open_in_full</span>
+                    </button>
+                    <div class="log-box" id="logs-{{ svc.name }}">{{ svc.logs }}</div>
+                </div>
+                <div class="action-buttons">
+                    <button id="toggle-btn-{{ svc.name }}" class="action-btn {% if svc.active %}btn-red{% else %}btn-green{% endif %}" onclick="botAction('{{ svc.name }}', '{% if svc.active %}stop{% else %}start{% endif %}')">
+                        <span class="material-symbols-outlined">{% if svc.active %}stop_circle{% else %}play_arrow{% endif %}</span>
+                    </button>
+                    <button class="action-btn btn-blue" onclick="botAction('{{ svc.name }}', 'logs')"><span class="material-symbols-outlined">description</span></button>
+                    <button class="action-btn btn-orange" onclick="botAction('{{ svc.name }}', 'restart')"><span class="material-symbols-outlined">sync</span></button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Модальное окно: Полные логи -->
+<div class="modal fade" id="fullLogsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content bg-dark" style="border-radius: 12px; border: none; overflow: hidden;">
+            <div class="modal-header border-bottom-0 bg-dark text-light p-3">
+                <h5 class="modal-title d-flex align-items-center gap-2" id="fullLogsTitle"></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="log-box full-log-box" id="fullLogsContent">Загрузка...</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/services.js"></script>
+{% endblock %}

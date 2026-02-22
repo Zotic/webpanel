@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <h2 class="fw-bold text-secondary mb-0">Управление ботами</h2>
+    <div class="d-flex gap-2">
+        <button id="autoRefreshBtn" class="btn btn-success shadow-sm" onclick="toggleAutoRefresh()" style="border-radius: 8px;">Автообновление: ВКЛ</button>
+        <button class="btn btn-primary shadow-sm" onclick="openAddBotModal()" style="border-radius: 8px;">+ Добавить бота</button>
+    </div>
+</div>
+
+<div class="row row-cols-1 row-cols-lg-2 row-cols-xl-3 g-4" id="botsContainer">
+    {% for bot in bots %}
+    <div class="col bot-col" id="bot-{{ bot.name }}">
+        <div class="card bot-card">
+            <!-- В карточку добавлен специальный drag-handle -->
+            <div class="card-header d-flex justify-content-between align-items-start">
+                <div class="d-flex align-items-start gap-2" style="max-width: 70%;">
+                    <!-- Иконка перетаскивания -->
+                    <span class="material-symbols-outlined text-muted drag-handle mt-1" style="cursor: grab;" title="Потяните для сортировки">drag_indicator</span>
+                    
+                    <div>
+                        <strong class="text-truncate d-block" title="{{ bot.name }}">{{ bot.name }}</strong>
+                        <small class="text-muted d-block text-truncate" title="{{ bot.path }}" style="font-size: 0.75rem;">
+                            {% if bot.is_python %}
+                                <span title="{{ bot.python_path }}" style="cursor: help;">🐍</span> 
+                            {% endif %}
+                            {{ bot.path }}
+                        </small>
+                    </div>
+                </div>
+                <span id="badge-{{ bot.name }}" class="badge {% if bot.active %}bg-success{% else %}bg-danger{% endif %} mt-1">
+                    {% if bot.active %}Активен{% else %}Остановлен{% endif %}
+                </span>
+            </div>
+            <div class="card-body-wrapper">
+                <div class="log-container">
+                    <button class="fullscreen-btn" onclick="openFullLogs('{{ bot.name }}')" title="На полный экран">
+                        <span class="material-symbols-outlined">open_in_full</span>
+                    </button>
+                    <div class="log-box" id="logs-{{ bot.name }}">{{ bot.logs }}</div>
+                </div>
+                <div class="action-buttons">
+                    <button id="toggle-btn-{{ bot.name }}" class="action-btn {% if bot.active %}btn-red{% else %}btn-green{% endif %}" onclick="botAction('{{ bot.name }}', '{% if bot.active %}stop{% else %}start{% endif %}')">
+                        <span class="material-symbols-outlined">{% if bot.active %}stop_circle{% else %}play_arrow{% endif %}</span>
+                    </button>
+                    <button class="action-btn btn-blue" onclick="botAction('{{ bot.name }}', 'logs')"><span class="material-symbols-outlined">description</span></button>
+                    <button class="action-btn btn-orange" onclick="botAction('{{ bot.name }}', 'restart')"><span class="material-symbols-outlined">sync</span></button>
+                    <button class="action-btn btn-dark" onclick="botAction('{{ bot.name }}', 'delete')"><span class="material-symbols-outlined">delete</span></button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Модалки перенесены сюда, логика осталась прежней -->
+<div class="modal fade" id="addBotModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" style="border-radius: 12px; border: none; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+            <div class="modal-header border-bottom-0"><h5 class="modal-title fw-bold">Добавить бота</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body pt-0">
+                <div class="mb-3"><label class="form-label text-secondary small text-uppercase fw-bold">Название бота:</label><input type="text" id="newBotName" class="form-control form-control-lg bg-light" style="border-radius: 8px;"></div>
+                <div class="mb-2 text-secondary small fw-bold">Текущая папка: <span id="currentPath" class="text-dark">/root/Bots</span></div>
+                <div class="list-group file-list shadow-sm" id="fileBrowser" style="border-radius: 8px;"></div>
+            </div>
+            <div class="modal-footer border-top-0">
+                <span id="selectedFile" class="me-auto text-success fw-bold small">Файл не выбран</span>
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-success" onclick="submitBot()">Создать</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="fullLogsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content bg-dark" style="border-radius: 12px; border: none; overflow: hidden;">
+            <div class="modal-header border-bottom-0 bg-dark text-light p-3"><h5 class="modal-title d-flex align-items-center gap-2" id="fullLogsTitle"></h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body p-0"><div class="log-box full-log-box" id="fullLogsContent">Загрузка...</div></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Подключаем библиотеку для Drag & Drop -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+<script src="/static/js/bots.js"></script>
+{% endblock %}
