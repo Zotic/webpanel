@@ -97,11 +97,19 @@ function renderLogs() {
     const tbody = document.getElementById('logsTableBody');
     tbody.innerHTML = '';
 
-    // Фильтруем логи на основе выбранных галочек
-    const filteredLogs = allLoadedLogs.filter(log => selectedSources.has(log.source));
+    // Получаем текущий выбранный уровень из выпадающего списка
+    const selectedPriority = document.getElementById('logPriority').value.toUpperCase();
+
+    // 1. Фильтруем по источникам (галочки)
+    let filteredLogs = allLoadedLogs.filter(log => selectedSources.has(log.source));
+    
+    // 2. ЖЕСТКИЙ фильтр по приоритетам (чтобы ERROR не попадал в WARNING)
+    if (selectedPriority !== 'ALL') {
+        filteredLogs = filteredLogs.filter(log => log.priority === selectedPriority);
+    }
 
     if (filteredLogs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-5 text-muted">По выбранным источникам логов нет.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-5 text-muted">По вашему запросу логов не найдено.</td></tr>';
         return;
     }
 
@@ -109,26 +117,26 @@ function renderLogs() {
         const tr = document.createElement('tr');
         
         let badgeClass = 'bg-secondary';
-        let bgColor = 'background-color: #ffffff;'; // По умолчанию белый
+        let rowClass = ''; // Будем использовать классы Bootstrap для заливки
         
         if (log.priority === 'ERROR') {
             badgeClass = 'bg-danger';
-            bgColor = 'background-color: #f8d7da; border-bottom: 1px solid #f1aeb5;'; // Сплошной светло-красный
+            rowClass = 'table-danger'; // Заливка красным
         } else if (log.priority === 'WARNING') {
             badgeClass = 'bg-warning text-dark';
-            bgColor = 'background-color: #fff3cd; border-bottom: 1px solid #ffe69c;'; // Сплошной желтый
+            rowClass = 'table-warning'; // Заливка желтым
         } else if (log.priority === 'INFO') {
             badgeClass = 'bg-primary';
-            bgColor = 'background-color: #ffffff; border-bottom: 1px solid #dee2e6;';
         }
 
-        tr.style.cssText = bgColor; // Применяем стиль напрямую
+        tr.className = rowClass;
         
+        // Используем читаемые шрифты
         tr.innerHTML = `
             <td class="ps-3 text-muted text-nowrap" style="font-family: 'Roboto', sans-serif; font-size: 0.8rem;">${log.time}</td>
             <td><span class="badge ${badgeClass} w-100">${log.priority}</span></td>
             <td class="fw-bold text-truncate" style="max-width: 180px; font-family: 'Roboto', sans-serif;" title="${log.source}">${log.source}</td>
-            <td class="pe-3" style="font-family: Consolas, Monaco, 'Liberation Mono', monospace; font-size: 0.85rem; word-break: break-word; color: #333;">${log.message}</td>
+            <td class="pe-3" style="font-family: Consolas, Monaco, 'Liberation Mono', monospace; font-size: 0.85rem; word-break: break-word;">${log.message}</td>
         `;
         tbody.appendChild(tr);
     });
