@@ -274,33 +274,64 @@ def system_services():
     return render_template('services.html', services=get_all_services())
 
 def get_3proxy_connections():
+    # 3proxy может хранить логи по разным путям в зависимости от настроек
+    possible_paths = [
+        '/var/log/3proxy.log', 
+        '/var/log/3proxy/3proxy.log', 
+        '/var/log/3proxy'
+    ]
+    
+    log_file = None
+    for path in possible_paths:
+        if os.path.isfile(path): # Проверяем, что это именно файл, а не папка
+            log_file = path
+            break
+            
+    if not log_file:
+        # Если файл не найден, выводим это прямо в таблицу на сайте
+        return [{"time": "-", "user": "-", "client": "-", "dest": "ОШИБКА", "status": "Файл лога 3proxy не найден"}]
+
     try:
-        # Читаем логи 3proxy
-        res = subprocess.run(['tail', '-100', '/var/log/3proxy'], capture_output=True, text=True)
+        res = subprocess.run(['tail', '-100', log_file], capture_output=True, text=True)
         connections = []
-        # Переворачиваем, чтобы новые были сверху
+        
         for line in reversed(res.stdout.split('\n')):
             if not line.strip(): continue
             parts = line.split()
+            
+            # В стандартном логе 3proxy 10 колонок
             if len(parts) >= 10:
                 try:
-                    # Преобразуем timestamp (напр. 1771857781.286)
                     dt = datetime.fromtimestamp(float(parts[0]))
                     time_str = dt.strftime('%d.%m %H:%M:%S')
                 except:
                     time_str = parts[0]
                 
+                user = parts[3]
+                event = parts[9]
+                
+                # Очищаем технические логи (например Accepting_connections)
+                if 'Accepting_connections' in event:
+                    continue
+                    
+                # Убираем дублирование IP в статусе (CONNECT_1.1.1.1:80 -> CONNECT)
+                if event.startswith('CONNECT_'):
+                    event = 'CONNECT'
+                elif event.startswith('UNKNOWN_'):
+                    event = 'UNKNOWN'
+
                 connections.append({
                     'time': time_str,
-                    'user': parts[3] if parts[3] != '-' else 'Unknown',
+                    'user': user if user != '-' else 'Unknown',
                     'client': parts[4],
                     'dest': parts[5],
-                    'status': parts[9]
+                    'status': event
                 })
+                
         return connections[:50]
     except Exception as e:
-        print("Ошибка 3proxy:", e)
-        return []
+        print("Ошибка парсинга логов 3proxy:", e)
+        return [{"time": "-", "user": "-", "client": "-", "dest": "ОШИБКА", "status": str(e)}]
 
 def get_danted_connections():
     try:
