@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <h2 class="fw-bold text-secondary mb-0">Системные логи</h2>
+    
+    <div class="d-flex flex-wrap gap-2 flex-grow-1 justify-content-lg-end align-items-center">
+        <!-- Фильтр уровня логов -->
+        <select id="logPriority" class="form-select shadow-sm" style="width: auto; border-radius: 8px;" onchange="fetchLogs()">
+            <option value="all">Все уровни</option>
+            <option value="error">🔴 Только Ошибки</option>
+            <option value="warning">🟡 Предупреждения</option>
+            <option value="info">🔵 Информация</option>
+        </select>
+        
+        <!-- Поиск -->
+        <input type="text" id="logSearch" class="form-control shadow-sm" placeholder="Поиск (напр. sshd)..." style="max-width: 250px; border-radius: 8px;">
+        
+        <button class="btn btn-primary shadow-sm d-flex align-items-center gap-1" onclick="fetchLogs()" style="border-radius: 8px;">
+            <span class="material-symbols-outlined fs-6">refresh</span> Обновить
+        </button>
+        
+        <button id="autoRefreshBtn" class="btn btn-secondary shadow-sm" onclick="toggleAutoRefresh()" style="border-radius: 8px;">
+            Авто: ВЫКЛ
+        </button>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-0">
+        <!-- Обертка для скролла таблицы -->
+        <div class="table-responsive" style="height: 70vh; overflow-y: auto;">
+            <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem; font-family: 'Courier New', monospace;">
+                <!-- Прилипающая шапка -->
+                <thead class="table-dark position-sticky top-0" style="z-index: 10;">
+                    <tr>
+                        <th class="ps-3" style="width: 140px;">Время</th>
+                        <th style="width: 100px;">Уровень</th>
+                        <th style="width: 180px;">Источник</th>
+                        <th class="pe-3">Сообщение</th>
+                    </tr>
+                </thead>
+                <tbody id="logsTableBody">
+                    <tr><td colspan="4" class="text-center py-5 text-muted">Загрузка логов...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/logs.js"></script>
+{% endblock %}

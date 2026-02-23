@@ -428,5 +428,76 @@ def vpn_remove():
         run_command('systemctl restart xray')
     return jsonify({'status': 'ok'})
 
+# ========================================
+# МАРШРУТ И API ДЛЯ СИСТЕМНЫХ ЛОГОВ
+# ========================================
+@app.route('/logs')
+@login_required
+def system_logs_page():
+    return render_template('logs.html')
+
+@app.route('/api/system_logs', methods=['POST'])
+@login_required
+def api_system_logs():
+    filters = request.json or {}
+    lines = filters.get('lines', 300) # По умолчанию берем 300 последних строк
+    priority = filters.get('priority', 'all')
+    search = filters.get('search', '').lower()
+
+    # Формируем команду journalctl с выводом в формате JSON (одна строка - один JSON объект)
+    # -r означает реверс (сначала новые)
+    cmd = f"journalctl -r -n {lines} -o json"
+    
+    # Фильтр по важности (0..3 = ошибки, 4 = предупреждения, 5..7 = инфо)
+    if priority == 'error':
+        cmd += " -p 0..3"
+    elif priority == 'warning':
+        cmd += " -p 4"
+    elif priority == 'info':
+        cmd += " -p 5..7"
+
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        logs = []
+        for line in result.stdout.split('\n'):
+            if not line.strip(): continue
+            try:
+                entry = json.loads(line)
+                
+                # Извлекаем и безопасно декодируем сообщение
+                msg = entry.get('MESSAGE', '')
+                if isinstance(msg, list): # Иногда journalctl отдает бинарные данные массивом байт
+                    msg = bytes(msg).decode('utf-8', errors='replace')
+                elif not isinstance(msg, str):
+                    msg = str(msg)
+                
+                # Фильтр по тексту
+                source = entry.get('SYSLOG_IDENTIFIER', entry.get('_SYSTEMD_UNIT', 'unknown'))
+                if search and search not in msg.lower() and search not in source.lower():
+                    continue
+                    
+                # Форматируем время
+                timestamp = int(entry.get('__REALTIME_TIMESTAMP', 0)) // 1000000
+                date_str = datetime.fromtimestamp(timestamp).strftime('%d.%m %H:%M:%S') if timestamp else ""
+                
+                # Определяем уровень критичности
+                prio_num = int(entry.get('PRIORITY', 6))
+                if prio_num <= 3: prio_str = "ERROR"
+                elif prio_num == 4: prio_str = "WARNING"
+                else: prio_str = "INFO"
+
+                logs.append({
+                    "time": date_str,
+                    "priority": prio_str,
+                    "source": source,
+                    "message": msg
+                })
+            except:
+                pass
+                
+        return jsonify({"success": True, "logs": logs})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
