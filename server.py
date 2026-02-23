@@ -350,11 +350,14 @@ def get_danted_connections():
             
             client, dest, user = "unknown", "unknown", "-"
             
+            # Ищем юзернейм: username%ИМЯ@
+            user_m = re.search(r'username%([^@\s]+)@', line)
+            if user_m: 
+                user = user_m.group(1)
+            
             # Парсим логи коннектов
             if "tcp/connect" in line:
                 m = re.search(r'@([\d\.]+)\.\d+\s+[\d\.]+\.\d+.*?\s([\d\.]+)\.(\d+)', line)
-                user_m = re.search(r'->\s([^@\s]+)@', line)
-                if user_m: user = user_m.group(1).replace('username%', '')
                 if m:
                     client = m.group(1)
                     dest = f"{m.group(2)}:{m.group(3)}"
@@ -367,13 +370,19 @@ def get_danted_connections():
 
             # Добавляем только если удалось извлечь хотя бы IP клиента
             if client != "unknown":
+                # Очищаем "сырой" лог для вывода
+                raw_log = line.split(']: ')[-1] if ']: ' in line else line
+                # Чтобы лог не был слишком длинным, убираем из него кусок с юзернеймом
+                if user != "-":
+                    raw_log = re.sub(r'username%[^@]+@', '', raw_log)
+
                 connections.append({
                     'time': time_str, 
                     'client': client, 
                     'dest': dest, 
                     'user': user, 
                     'status': status,
-                    'raw': line.split(']: ')[-1] if ']: ' in line else line # Суть ошибки/действия
+                    'raw': raw_log
                 })
         return connections[:50]
     except Exception as e:

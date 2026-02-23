@@ -155,3 +155,30 @@
 
 </div>
 {% endblock %}
+
+{% block scripts %}
+<script>
+    // Ждем загрузки страницы
+    document.addEventListener("DOMContentLoaded", function() {
+        // 1. При клике на любую вкладку - сохраняем ее ID в localStorage
+        var tabs = document.querySelectorAll('button[data-bs-toggle="tab"]');
+        tabs.forEach(function(tab) {
+            tab.addEventListener('shown.bs.tab', function (event) {
+                var activeTabId = event.target.getAttribute('data-bs-target');
+                localStorage.setItem('activeVpnTab', activeTabId);
+            });
+        });
+
+        // 2. При загрузке страницы проверяем, есть ли сохраненная вкладка
+        var savedTabId = localStorage.getItem('activeVpnTab');
+        if (savedTabId) {
+            // Находим кнопку этой вкладки и программно кликаем по ней
+            var tabBtn = document.querySelector('button[data-bs-target="' + savedTabId + '"]');
+            if (tabBtn) {
+                var tabInstance = new bootstrap.Tab(tabBtn);
+                tabInstance.show();
+            }
+        }
+    });
+</script>
+{% endblock %}
