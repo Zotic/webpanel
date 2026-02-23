@@ -1,20 +1,38 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <h2 class="fw-bold text-secondary mb-0">Системные логи</h2>
     
     <div class="d-flex flex-wrap gap-2 flex-grow-1 justify-content-lg-end align-items-center">
+        <!-- Выбор количества строк -->
+        <select id="logLines" class="form-select shadow-sm" style="width: auto; border-radius: 8px;" onchange="fetchLogs()">
+            <option value="100">100 строк</option>
+            <option value="300" selected>300 строк</option>
+            <option value="500">500 строк</option>
+            <option value="1000">1000 строк</option>
+        </select>
+
         <!-- Фильтр уровня логов -->
         <select id="logPriority" class="form-select shadow-sm" style="width: auto; border-radius: 8px;" onchange="fetchLogs()">
             <option value="all">Все уровни</option>
-            <option value="error">🔴 Только Ошибки</option>
+            <option value="error">🔴 Ошибки</option>
             <option value="warning">🟡 Предупреждения</option>
             <option value="info">🔵 Информация</option>
         </select>
+
+        <!-- Всплывающее меню с галочками (Источники) -->
+        <div class="dropdown">
+            <button class="btn btn-white border shadow-sm dropdown-toggle d-flex align-items-center gap-1" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" style="border-radius: 8px;">
+                <span class="material-symbols-outlined fs-6 text-secondary">filter_list</span> Источники
+            </button>
+            <ul class="dropdown-menu p-2 shadow" id="sourceFilterMenu" style="max-height: 350px; overflow-y: auto; width: 260px;">
+                <li><span class="text-muted small px-2">Загрузите логи...</span></li>
+            </ul>
+        </div>
         
         <!-- Поиск -->
-        <input type="text" id="logSearch" class="form-control shadow-sm" placeholder="Поиск (напр. sshd)..." style="max-width: 250px; border-radius: 8px;">
+        <input type="text" id="logSearch" class="form-control shadow-sm" placeholder="Поиск текста..." style="max-width: 200px; border-radius: 8px;">
         
         <button class="btn btn-primary shadow-sm d-flex align-items-center gap-1" onclick="fetchLogs()" style="border-radius: 8px;">
             <span class="material-symbols-outlined fs-6">refresh</span> Обновить
@@ -26,15 +44,15 @@
     </div>
 </div>
 
-<div class="card border-0 shadow-sm mb-4">
-    <div class="card-body p-0">
-        <!-- Обертка для скролла таблицы -->
-        <div class="table-responsive" style="height: 70vh; overflow-y: auto;">
-            <table class="table table-hover align-middle mb-0" style="font-size: 0.85rem; font-family: 'Courier New', monospace;">
+<!-- Растягиваем карточку до конца экрана с помощью calc() -->
+<div class="card border-0 shadow-sm" style="height: calc(100vh - 130px); overflow: hidden;">
+    <div class="card-body p-0 h-100">
+        <div class="table-responsive h-100">
+            <table class="table table-hover align-middle mb-0" style="font-size: 0.9rem;">
                 <!-- Прилипающая шапка -->
                 <thead class="table-dark position-sticky top-0" style="z-index: 10;">
                     <tr>
-                        <th class="ps-3" style="width: 140px;">Время</th>
+                        <th class="ps-3" style="width: 120px;">Время</th>
                         <th style="width: 100px;">Уровень</th>
                         <th style="width: 180px;">Источник</th>
                         <th class="pe-3">Сообщение</th>
