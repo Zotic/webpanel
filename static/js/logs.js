@@ -109,26 +109,26 @@ function renderLogs() {
         const tr = document.createElement('tr');
         
         let badgeClass = 'bg-secondary';
-        let rowClass = '';
+        let bgColor = 'background-color: #ffffff;'; // По умолчанию белый
         
         if (log.priority === 'ERROR') {
             badgeClass = 'bg-danger';
-            rowClass = 'table-danger'; // Подсвечиваем всю строку слегка красным
+            bgColor = 'background-color: #f8d7da; border-bottom: 1px solid #f1aeb5;'; // Сплошной светло-красный
         } else if (log.priority === 'WARNING') {
             badgeClass = 'bg-warning text-dark';
-            rowClass = 'table-warning';
+            bgColor = 'background-color: #fff3cd; border-bottom: 1px solid #ffe69c;'; // Сплошной желтый
         } else if (log.priority === 'INFO') {
             badgeClass = 'bg-primary';
+            bgColor = 'background-color: #ffffff; border-bottom: 1px solid #dee2e6;';
         }
 
-        tr.className = rowClass;
+        tr.style.cssText = bgColor; // Применяем стиль напрямую
         
-        // Используем читаемые шрифты: Roboto для служебной информации, Consolas для самого лога
         tr.innerHTML = `
             <td class="ps-3 text-muted text-nowrap" style="font-family: 'Roboto', sans-serif; font-size: 0.8rem;">${log.time}</td>
             <td><span class="badge ${badgeClass} w-100">${log.priority}</span></td>
             <td class="fw-bold text-truncate" style="max-width: 180px; font-family: 'Roboto', sans-serif;" title="${log.source}">${log.source}</td>
-            <td class="pe-3" style="font-family: Consolas, Monaco, 'Liberation Mono', monospace; font-size: 0.85rem; word-break: break-word;">${log.message}</td>
+            <td class="pe-3" style="font-family: Consolas, Monaco, 'Liberation Mono', monospace; font-size: 0.85rem; word-break: break-word; color: #333;">${log.message}</td>
         `;
         tbody.appendChild(tr);
     });

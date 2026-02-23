@@ -129,7 +129,20 @@ function renderProcessTable() {
 document.getElementById('procSearch').addEventListener('input', renderProcessTable);
 
 // Запуск цикла обновления
+let isPaused = false;
+
+function togglePause() {
+    isPaused = !isPaused;
+    document.getElementById('pauseIcon').innerText = isPaused ? 'play_arrow' : 'pause';
+    document.getElementById('pauseBtn').className = isPaused ? 'btn btn-secondary shadow-sm d-flex align-items-center gap-1' : 'btn btn-primary shadow-sm d-flex align-items-center gap-1';
+    document.getElementById('pauseText').innerText = isPaused ? 'Пауза' : 'Автообновление';
+    if (!isPaused) fetchStats(); // Сразу обновляем при снятии с паузы
+}
+
+// Запуск цикла обновления с учетом паузы
 document.addEventListener('DOMContentLoaded', () => {
     fetchStats();
-    setInterval(fetchStats, 3000); // Обновляем каждые 3 секунды
+    setInterval(() => {
+        if (!isPaused) fetchStats();
+    }, 3000); 
 });

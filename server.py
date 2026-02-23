@@ -273,13 +273,92 @@ def bots():
 def system_services():
     return render_template('services.html', services=get_all_services())
 
+def get_3proxy_connections():
+    try:
+        # Читаем логи 3proxy
+        res = subprocess.run(['tail', '-100', '/var/log/3proxy'], capture_output=True, text=True)
+        connections = []
+        # Переворачиваем, чтобы новые были сверху
+        for line in reversed(res.stdout.split('\n')):
+            if not line.strip(): continue
+            parts = line.split()
+            if len(parts) >= 10:
+                try:
+                    # Преобразуем timestamp (напр. 1771857781.286)
+                    dt = datetime.fromtimestamp(float(parts[0]))
+                    time_str = dt.strftime('%d.%m %H:%M:%S')
+                except:
+                    time_str = parts[0]
+                
+                connections.append({
+                    'time': time_str,
+                    'user': parts[3] if parts[3] != '-' else 'Unknown',
+                    'client': parts[4],
+                    'dest': parts[5],
+                    'status': parts[9]
+                })
+        return connections[:50]
+    except Exception as e:
+        print("Ошибка 3proxy:", e)
+        return []
+
+def get_danted_connections():
+    try:
+        # Читаем логи danted
+        res = subprocess.run(['tail', '-100', '/var/log/socks.log'], capture_output=True, text=True)
+        connections = []
+        for line in reversed(res.stdout.split('\n')):
+            if not line.strip(): continue
+            
+            # Извлекаем время
+            time_match = re.search(r'^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})', line)
+            time_str = time_match.group(1) if time_match else ""
+            
+            # Определяем статус (пропущен/заблокирован)
+            status = "pass" if "pass(" in line else "block" if "block(" in line else "info"
+            
+            client, dest, user = "unknown", "unknown", "-"
+            
+            # Парсим логи коннектов
+            if "tcp/connect" in line:
+                m = re.search(r'@([\d\.]+)\.\d+\s+[\d\.]+\.\d+.*?\s([\d\.]+)\.(\d+)', line)
+                user_m = re.search(r'->\s([^@\s]+)@', line)
+                if user_m: user = user_m.group(1).replace('username%', '')
+                if m:
+                    client = m.group(1)
+                    dest = f"{m.group(2)}:{m.group(3)}"
+            # Парсим логи входящих запросов
+            elif "tcp/accept" in line:
+                m = re.search(r'[:\]]\s+([\d\.]+)\.\d+\s+([\d\.]+)\.\d+', line)
+                if m:
+                    client = m.group(1)
+                    dest = f"Local: {m.group(2)}"
+
+            # Добавляем только если удалось извлечь хотя бы IP клиента
+            if client != "unknown":
+                connections.append({
+                    'time': time_str, 
+                    'client': client, 
+                    'dest': dest, 
+                    'user': user, 
+                    'status': status,
+                    'raw': line.split(']: ')[-1] if ']: ' in line else line # Суть ошибки/действия
+                })
+        return connections[:50]
+    except Exception as e:
+        print("Ошибка danted:", e)
+        return []
+
 @app.route('/vpn')
 @login_required
 def vpn():
     return render_template('vpn.html',
-                           xray_status=get_xray_status(),
-                           direct_domains=get_direct_domains(),
-                           connections=get_recent_connections(),
+                           xray_status=run_command("systemctl is-active xray") == "active",
+                           proxy_status=run_command("systemctl is-active 3proxy") == "active",
+                           danted_status=run_command("systemctl is-active danted") == "active",
+                           xray_connections=get_recent_connections(),
+                           proxy_connections=get_3proxy_connections(),
+                           danted_connections=get_danted_connections(),
                            dns_queries=get_dns_queries())
 
 @app.route('/monitor')
