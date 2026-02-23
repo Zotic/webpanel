@@ -440,15 +440,12 @@ def system_logs_page():
 @login_required
 def api_system_logs():
     filters = request.json or {}
-    lines = filters.get('lines', 300) # По умолчанию берем 300 последних строк
+    lines = filters.get('lines', 300) 
     priority = filters.get('priority', 'all')
     search = filters.get('search', '').lower()
 
-    # Формируем команду journalctl с выводом в формате JSON (одна строка - один JSON объект)
-    # -r означает реверс (сначала новые)
     cmd = f"journalctl -r -n {lines} -o json"
     
-    # Фильтр по важности (0..3 = ошибки, 4 = предупреждения, 5..7 = инфо)
     if priority == 'error':
         cmd += " -p 0..3"
     elif priority == 'warning':
@@ -466,10 +463,13 @@ def api_system_logs():
                 
                 # Извлекаем и безопасно декодируем сообщение
                 msg = entry.get('MESSAGE', '')
-                if isinstance(msg, list): # Иногда journalctl отдает бинарные данные массивом байт
+                if isinstance(msg, list): 
                     msg = bytes(msg).decode('utf-8', errors='replace')
                 elif not isinstance(msg, str):
                     msg = str(msg)
+                
+                # === ИСПРАВЛЕНИЕ: Очищаем сообщение от ANSI цветовых кодов ===
+                msg = clean_logs(msg)
                 
                 # Фильтр по тексту
                 source = entry.get('SYSLOG_IDENTIFIER', entry.get('_SYSTEMD_UNIT', 'unknown'))
@@ -490,7 +490,7 @@ def api_system_logs():
                     "time": date_str,
                     "priority": prio_str,
                     "source": source,
-                    "message": msg
+                    "message": msg # Теперь тут чистый текст
                 })
             except:
                 pass
