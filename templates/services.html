@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
-    <h2 class="fw-bold text-secondary mb-0">Системные сервисы</h2>
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-3">
+    <!-- Переименовали заголовок -->
+    <h2 class="fw-bold text-secondary mb-0">Сервисы</h2>
     
     <div class="d-flex flex-wrap gap-2 flex-grow-1 justify-content-lg-end">
         <input type="text" id="searchInput" onkeyup="filterServices()" class="form-control shadow-sm" placeholder="Поиск (напр. nginx)..." style="max-width: 300px; border-radius: 8px;">
@@ -12,9 +13,10 @@
     </div>
 </div>
 
-<div class="card border-0 shadow-sm mb-4">
-    <div class="card-body p-0">
-        <div class="table-responsive" style="max-height: 75vh; overflow-y: auto;">
+<!-- Растягиваем карточку до конца экрана с помощью calc() и h-100 -->
+<div class="card border-0 shadow-sm" style="height: calc(100vh - 120px); overflow: hidden;">
+    <div class="card-body p-0 h-100">
+        <div class="table-responsive h-100">
             <table class="table align-middle mb-0 text-nowrap">
                 <thead class="table-light position-sticky top-0" style="z-index: 10;">
                     <tr>
