@@ -136,24 +136,34 @@ def get_bots():
 
 def get_all_services():
     try:
-        # Выгружаем статусы и пути ВСЕХ сервисов за ОДНУ команду (очень быстро)
-        res = subprocess.run(
-            ['systemctl', 'show', '-p', 'Id,ActiveState,ExecStart', '--type=service', '--all'], 
-            capture_output=True, text=True
-        )
+        # 1. Быстро получаем только имена всех сервисов
+        res = subprocess.run(['systemctl', 'list-units', '--type=service', '--all', '--no-pager', '--no-legend'], capture_output=True, text=True)
+        service_names = []
+        for line in res.stdout.split('\n'):
+            if not line.strip(): continue
+            parts = line.split()
+            if parts and parts[0].endswith('.service'):
+                service_names.append(parts[0])
+                
+        if not service_names:
+            return []
+
+        # 2. Выгружаем свойства для всех найденных сервисов ОДНОЙ командой (очень быстро)
+        cmd = ['systemctl', 'show', '-p', 'Id,ActiveState,ExecStart'] + service_names
+        res2 = subprocess.run(cmd, capture_output=True, text=True)
+        
         services = []
         current_svc = {}
         
-        lines = res.stdout.split('\n')
-        # Добавляем пустую строку в конец, чтобы гарантированно обработать последний блок
-        lines.append('') 
+        lines = res2.stdout.split('\n')
+        lines.append('') # Чтобы гарантированно обработать последний блок
         
         for line in lines:
             line = line.strip()
             if not line:
                 if 'Id' in current_svc and current_svc['Id'].endswith('.service'):
                     path_raw = current_svc.get('ExecStart', '')
-                    clean_path = "Путь неизвестен"
+                    clean_path = ""
                     
                     match_argv = re.search(r'argv\[\]=(.*?)\s+;', path_raw)
                     if match_argv:
@@ -464,17 +474,19 @@ def bot_action():
     action = request.json.get('action')
     is_system = request.json.get('is_system', False)
     
-    # Если это системный сервис, берем имя как есть. Если бот — добавляем префикс.
     svc = bot_name if is_system else f"{SERVICE_PREFIX}{bot_name}.service"
     
+    # Легкий запрос только для обновления статуса кнопок в таблице
+    if action == "status_only":
+        is_active = (run_command(f"systemctl is-active {svc}") == "active")
+        return jsonify({"success": True, "active": is_active})
+        
     if action == "restart": run_command(f"systemctl restart {svc}")
     elif action == "start": run_command(f"systemctl start {svc}")
     elif action == "stop": run_command(f"systemctl stop {svc}")
     elif action == "delete":
-        # ЗАЩИТА: Запрещаем удалять системные службы через панель
         if is_system:
             return jsonify({"success": False, "error": "Удаление системных служб запрещено."})
-            
         run_command(f"systemctl stop {svc} && systemctl disable {svc}")
         os.remove(os.path.join(SYSTEMD_DIR, svc))
         run_command("systemctl daemon-reload")
