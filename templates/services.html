@@ -2,50 +2,57 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
-    <h2 class="fw-bold text-secondary mb-0">Сервисы сервера</h2>
+    <h2 class="fw-bold text-secondary mb-0">Системные сервисы</h2>
     
     <div class="d-flex flex-wrap gap-2 flex-grow-1 justify-content-lg-end">
-        <input type="text" id="searchInput" onkeyup="filterServices()" class="form-control shadow-sm" placeholder="Поиск сервиса (например, nginx)..." style="max-width: 300px; border-radius: 8px;">
+        <input type="text" id="searchInput" onkeyup="filterServices()" class="form-control shadow-sm" placeholder="Поиск (напр. nginx)..." style="max-width: 300px; border-radius: 8px;">
         <button id="autoRefreshBtn" class="btn btn-secondary shadow-sm" onclick="toggleAutoRefresh()" style="border-radius: 8px; white-space: nowrap;">
             Автообновление: ВЫКЛ
         </button>
     </div>
 </div>
 
-<div class="row row-cols-1 row-cols-lg-2 row-cols-xl-3 g-4" id="botsContainer">
-    {% for svc in services %}
-    <div class="col bot-col" id="bot-{{ svc.name }}">
-        <div class="card bot-card">
-            <div class="card-header d-flex justify-content-between align-items-start">
-                <div style="max-width: 70%;">
-                    <strong class="text-truncate d-block" title="{{ svc.name }}">{{ svc.name }}</strong>
-                    <!-- Обычный вывод пути без иконок -->
-                    <small class="text-muted d-block text-truncate" title="{{ svc.path }}" style="font-size: 0.75rem;">
-                        {{ svc.path }}
-                    </small>
-                </div>
-                <span id="badge-{{ svc.name }}" class="badge {% if svc.active %}bg-success{% else %}bg-danger{% endif %} mt-1">
-                    {% if svc.active %}Активен{% else %}Остановлен{% endif %}
-                </span>
-            </div>
-            <div class="card-body-wrapper">
-                <div class="log-container">
-                    <button class="fullscreen-btn" onclick="openFullLogs('{{ svc.name }}')" title="На полный экран">
-                        <span class="material-symbols-outlined">open_in_full</span>
-                    </button>
-                    <div class="log-box" id="logs-{{ svc.name }}">{{ svc.logs }}</div>
-                </div>
-                <div class="action-buttons">
-                    <button id="toggle-btn-{{ svc.name }}" class="action-btn {% if svc.active %}btn-red{% else %}btn-green{% endif %}" onclick="botAction('{{ svc.name }}', '{% if svc.active %}stop{% else %}start{% endif %}')">
-                        <span class="material-symbols-outlined">{% if svc.active %}stop_circle{% else %}play_arrow{% endif %}</span>
-                    </button>
-                    <button class="action-btn btn-blue" onclick="botAction('{{ svc.name }}', 'logs')"><span class="material-symbols-outlined">description</span></button>
-                    <button class="action-btn btn-orange" onclick="botAction('{{ svc.name }}', 'restart')"><span class="material-symbols-outlined">sync</span></button>
-                </div>
-            </div>
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 75vh; overflow-y: auto;">
+            <table class="table align-middle mb-0 text-nowrap">
+                <thead class="table-light position-sticky top-0" style="z-index: 10;">
+                    <tr>
+                        <th class="ps-4">Статус</th>
+                        <th>Название сервиса</th>
+                        <th>Путь к исполняемому файлу</th>
+                        <th class="pe-4 text-end">Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="servicesContainer">
+                    {% for svc in services %}
+                    <tr class="svc-row" id="row-{{ svc.name }}">
+                        <td class="ps-4">
+                            <span id="badge-{{ svc.name }}" class="badge {% if svc.active %}bg-success{% else %}bg-danger{% endif %} w-100">
+                                {% if svc.active %}АКТИВЕН{% else %}ОСТАНОВЛЕН{% endif %}
+                            </span>
+                        </td>
+                        <td class="fw-bold text-dark svc-name">{{ svc.name }}</td>
+                        <td class="text-muted small font-monospace" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;" title="{{ svc.path }}">{{ svc.path }}</td>
+                        <td class="pe-4 text-end">
+                            <div class="d-flex justify-content-end gap-1">
+                                <button id="toggle-btn-{{ svc.name }}" class="btn btn-sm {% if svc.active %}btn-outline-danger{% else %}btn-outline-success{% endif %} d-flex align-items-center justify-content-center p-1" onclick="botAction('{{ svc.name }}', '{% if svc.active %}stop{% else %}start{% endif %}')" title="{% if svc.active %}Остановить{% else %}Запустить{% endif %}" style="width: 32px; height: 32px;">
+                                    <span class="material-symbols-outlined fs-6">{% if svc.active %}stop_circle{% else %}play_arrow{% endif %}</span>
+                                </button>
+                                <button class="btn btn-sm btn-outline-primary d-flex align-items-center justify-content-center p-1" onclick="botAction('{{ svc.name }}', 'logs')" title="Показать логи" style="width: 32px; height: 32px;">
+                                    <span class="material-symbols-outlined fs-6">description</span>
+                                </button>
+                                <button class="btn btn-sm btn-outline-warning d-flex align-items-center justify-content-center p-1" onclick="botAction('{{ svc.name }}', 'restart')" title="Перезапустить" style="width: 32px; height: 32px;">
+                                    <span class="material-symbols-outlined fs-6">sync</span>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
-    {% endfor %}
 </div>
 
 <!-- Модальное окно: Полные логи -->
@@ -57,7 +64,7 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-0">
-                <div class="log-box full-log-box" id="fullLogsContent">Загрузка...</div>
+                <div class="log-box full-log-box" id="fullLogsContent" style="height: 70vh; padding: 15px; background: #1e1e1e; color: #4af626; font-family: monospace; overflow-y: auto; white-space: pre-wrap;">Загрузка...</div>
             </div>
         </div>
     </div>
