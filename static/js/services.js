@@ -2,19 +2,20 @@ let currentFullLogBot = null;
 let isAutoRefresh = false; 
 let pollInterval = null;
 let transitioningBots = new Set();
+let logsModal = null;
 
-// Фильтрация (поиск) по названию
+document.addEventListener("DOMContentLoaded", () => {
+    logsModal = new bootstrap.Modal(document.getElementById('fullLogsModal'));
+});
+
+// Быстрый поиск по таблице
 function filterServices() {
     let input = document.getElementById('searchInput').value.toLowerCase();
-    let cards = document.querySelectorAll('.bot-col');
+    let rows = document.querySelectorAll('.svc-row');
     
-    cards.forEach(card => {
-        let title = card.querySelector('.text-truncate').innerText.toLowerCase();
-        if (title.includes(input)) {
-            card.style.display = '';
-        } else {
-            card.style.display = 'none';
-        }
+    rows.forEach(row => {
+        let title = row.querySelector('.svc-name').innerText.toLowerCase();
+        row.style.display = title.includes(input) ? '' : 'none';
     });
 }
 
@@ -32,105 +33,74 @@ function toggleAutoRefresh() {
     }
 }
 
+// Фоновое обновление только ВИДИМЫХ сервисов (экономия ресурсов)
 function startPolling() {
     if (pollInterval) clearInterval(pollInterval);
     pollInterval = setInterval(async () => {
-        const botCols = document.querySelectorAll('.bot-col');
-        for (let col of botCols) {
-            // Не опрашиваем сервисы, которые скрыты поиском, чтобы не грузить сервер
-            if (col.style.display === 'none') continue;
+        const rows = document.querySelectorAll('.svc-row');
+        for (let row of rows) {
+            if (row.style.display === 'none') continue;
             
-            const botName = col.id.replace('bot-', '');
+            const botName = row.id.replace('row-', '');
             if (transitioningBots.has(botName)) continue;
             
             try {
                 const res = await fetch('/api/action', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ bot_name: botName, action: 'logs', is_system: true }) 
+                    body: JSON.stringify({ bot_name: botName, action: 'status_only', is_system: true }) 
                 });
                 if (res.status === 401) { location.reload(); return; }
                 const data = await res.json();
-                if (data.success && !transitioningBots.has(botName)) updateBotUI(botName, data);
-            } catch (e) { console.error(e); }
-        }
-        
-        if (currentFullLogBot && document.getElementById('fullLogsModal').classList.contains('show')) {
-            fetchFullLogs(currentFullLogBot);
+                if (data.success && !transitioningBots.has(botName)) updateUI(botName, data);
+            } catch (e) { }
         }
     }, 5000);
 }
 
-function updateBotUI(botName, data) {
+// Обновление кнопок в таблице
+function updateUI(botName, data) {
     if (data.active !== undefined) {
         let badge = document.getElementById('badge-' + botName);
         let toggleBtn = document.getElementById('toggle-btn-' + botName);
+        
         if (data.active) {
-            badge.className = 'badge bg-success'; badge.innerText = 'Активен';
-            toggleBtn.className = 'action-btn btn-red';
-            toggleBtn.innerHTML = '<span class="material-symbols-outlined">stop_circle</span>'; 
+            badge.className = 'badge bg-success w-100'; badge.innerText = 'АКТИВЕН';
+            toggleBtn.className = 'btn btn-sm btn-outline-danger d-flex align-items-center justify-content-center p-1';
+            toggleBtn.innerHTML = '<span class="material-symbols-outlined fs-6">stop_circle</span>'; 
             toggleBtn.title = 'Остановить';
             toggleBtn.setAttribute('onclick', `botAction('${botName}', 'stop')`);
         } else {
-            badge.className = 'badge bg-danger'; badge.innerText = 'Остановлен';
-            toggleBtn.className = 'action-btn btn-green';
-            toggleBtn.innerHTML = '<span class="material-symbols-outlined">play_arrow</span>'; 
+            badge.className = 'badge bg-danger w-100'; badge.innerText = 'ОСТАНОВЛЕН';
+            toggleBtn.className = 'btn btn-sm btn-outline-success d-flex align-items-center justify-content-center p-1';
+            toggleBtn.innerHTML = '<span class="material-symbols-outlined fs-6">play_arrow</span>'; 
             toggleBtn.title = 'Запустить';
             toggleBtn.setAttribute('onclick', `botAction('${botName}', 'start')`);
         }
     }
-    if (data.logs !== undefined) {
-        let logBox = document.getElementById('logs-' + botName);
-        let isAtBottom = (logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight) < 10;
-        if (logBox.innerText !== data.logs) {
-            logBox.innerText = data.logs;
-            if (isAtBottom) logBox.scrollTop = logBox.scrollHeight;
-        }
-    }
 }
 
-async function openFullLogs(botName) {
-    currentFullLogBot = botName;
-    document.getElementById('fullLogsTitle').innerHTML = `<span class="material-symbols-outlined text-success">terminal</span> Логи: ${botName}`;
-    document.getElementById('fullLogsContent').innerText = 'Загрузка...';
-    new bootstrap.Modal(document.getElementById('fullLogsModal')).show();
-    await fetchFullLogs(botName);
-}
-
-async function fetchFullLogs(botName) {
-    const res = await fetch('/api/action', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bot_name: botName, action: 'full_logs', is_system: true })
-    });
-    if (res.status === 401) { location.reload(); return; }
-    const data = await res.json();
-    if (data.success) {
-        let box = document.getElementById('fullLogsContent');
-        let isAtBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 10;
-        if (box.innerText !== data.logs) {
-            box.innerText = data.logs;
-            if (isAtBottom || box.scrollTop === 0) box.scrollTop = box.scrollHeight;
-        }
-    }
-}
-
+// Управление сервисами (Старт/Стоп/Логи)
 async function botAction(botName, action) {
     let badge = document.getElementById('badge-' + botName);
     let interval = null;
 
-    if (action === 'stop' || action === 'restart') {
+    if (action === 'logs') {
+        currentFullLogBot = botName;
+        document.getElementById('fullLogsTitle').innerHTML = `<span class="material-symbols-outlined text-success">terminal</span> Логи: ${botName}`;
+        let box = document.getElementById('fullLogsContent');
+        box.innerText = 'Загрузка...';
+        logsModal.show();
+        action = 'full_logs'; // Просим бэкенд отдать большие логи
+    } else {
         transitioningBots.add(botName); 
         let countdown = 5;
-        badge.className = 'badge bg-warning text-dark';
-        badge.innerText = `${action === 'stop' ? 'Остановка' : 'Рестарт'} (${countdown})...`;
-        
+        badge.className = 'badge bg-warning text-dark w-100';
+        badge.innerText = `ЖДИТЕ (${countdown})`;
         interval = setInterval(() => {
             countdown--;
-            if (countdown > 0) badge.innerText = `${action === 'stop' ? 'Остановка' : 'Рестарт'} (${countdown})...`;
-            else { badge.innerText = `Принудительно...`; clearInterval(interval); }
+            if (countdown > 0) badge.innerText = `ЖДИТЕ (${countdown})`;
+            else clearInterval(interval);
         }, 1000);
-    } else if (action === 'start') {
-        transitioningBots.add(botName);
-        badge.className = 'badge bg-warning text-dark'; badge.innerText = `Запуск...`;
     }
 
     try {
@@ -145,13 +115,18 @@ async function botAction(botName, action) {
         transitioningBots.delete(botName);
 
         if (data.success) {
-            updateBotUI(botName, data); 
+            if (action === 'full_logs') {
+                let box = document.getElementById('fullLogsContent');
+                box.innerText = data.logs || "Логов нет.";
+                box.scrollTop = box.scrollHeight;
+            } else {
+                updateUI(botName, data); 
+            }
         } else {
-            alert('Ошибка: ' + data.error);
-            botAction(botName, 'logs');
+            if (action !== 'full_logs') alert('Ошибка: ' + data.error);
         }
     } catch (e) {
         if (interval) clearInterval(interval);
-        transitioningBots.delete(botName); console.error(e);
+        transitioningBots.delete(botName);
     }
 }
