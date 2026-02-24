@@ -43,18 +43,12 @@ function formatSpeed(bytesPerSec) {
 // Обновление верхних карточек (CPU, RAM, Swap, Disk)
 function updateDashboard(stats) {
     // CPU
-    // Поскольку мы изменили структуру stats.cpu в server.py, обновляем и здесь:
     document.getElementById('cpuText').innerText = stats.cpu.percent + '%';
     document.getElementById('cpuBar').style.width = stats.cpu.percent + '%';
     document.getElementById('cpuBar').className = 'progress-bar ' + getBarColorClass(stats.cpu.percent);
     
-    // Если виртуалка отдает частоту, пишем ее, иначе скрываем
-    const freqEl = document.getElementById('cpuFreq');
-    if (stats.cpu.freq_max > 0) {
-        freqEl.innerText = `${stats.cpu.freq_current} MHz / ${stats.cpu.freq_max} MHz`;
-    } else {
-        freqEl.innerText = "Частота скрыта гипервизором";
-    }
+    // Выводим ядра и Load Average
+    document.getElementById('cpuDetails').innerText = `Ядра: ${stats.cpu.cores} | Load: ${stats.cpu.load_avg}`;
 
     // RAM
     document.getElementById('ramText').innerText = stats.ram.percent + '%';

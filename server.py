@@ -517,17 +517,15 @@ def api_system_stats():
     
     # 1. Основные метрики системы
     cpu_percent = psutil.cpu_percent(interval=0.1)
+    cpu_cores = psutil.cpu_count(logical=True)
     
-    # Частота CPU (не во всех виртуалках доступна, поэтому используем try/except)
-    cpu_freq_current = 0
-    cpu_freq_max = 0
+    # Получаем Load Average (нагрузку ОС за 1, 5 и 15 минут)
+    # В Windows этой функции нет, поэтому защищаем через try/except
     try:
-        freq = psutil.cpu_freq()
-        if freq:
-            cpu_freq_current = round(freq.current)
-            cpu_freq_max = round(freq.max)
-    except:
-        pass
+        load1, load5, load15 = os.getloadavg()
+        load_avg = f"{round(load1, 2)} / {round(load5, 2)} / {round(load15, 2)}"
+    except AttributeError:
+        load_avg = "N/A"
     
     mem = psutil.virtual_memory()
     swap = psutil.swap_memory()
@@ -552,15 +550,15 @@ def api_system_stats():
     stats = {
         "cpu": {
             "percent": cpu_percent,
-            "freq_current": cpu_freq_current,
-            "freq_max": cpu_freq_max
+            "cores": cpu_cores,
+            "load_avg": load_avg
         },
         "ram": {"percent": mem.percent, "used": mem.used, "total": mem.total},
         "swap": {"percent": swap.percent, "used": swap.used, "total": swap.total},
         "disk": {"percent": disk.percent, "used": disk.used, "total": disk.total},
         "network": {
-            "upload": upload_speed,     # Байт в секунду
-            "download": download_speed  # Байт в секунду
+            "upload": upload_speed,
+            "download": download_speed
         }
     }
     
