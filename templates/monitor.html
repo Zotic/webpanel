@@ -10,17 +10,19 @@
 </div>
 
 <!-- Верхний блок с основными метриками -->
-<div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-4 mb-4">
+<div class="row row-cols-1 row-cols-md-2 row-cols-xl-5 g-3 mb-4">
     <!-- CPU -->
     <div class="col">
         <div class="card h-100 border-0 shadow-sm">
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="card-title text-muted mb-0 fw-bold">CPU</h5>
-                    <span class="material-symbols-outlined text-primary fs-2">memory</span>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="card-title text-muted mb-0 fw-bold">CPU</h6>
+                    <span class="material-symbols-outlined text-primary fs-3">memory</span>
                 </div>
-                <h3 class="fw-bold mb-2" id="cpuText">0%</h3>
-                <div class="progress" style="height: 10px;">
+                <h3 class="fw-bold mb-0" id="cpuText">0%</h3>
+                <!-- Новое поле для частоты -->
+                <small class="text-muted d-block mb-1" id="cpuFreq" style="font-size: 0.75rem;">0 MHz / 0 MHz</small>
+                <div class="progress mt-2" style="height: 8px;">
                     <div id="cpuBar" class="progress-bar bg-primary" role="progressbar" style="width: 0%"></div>
                 </div>
             </div>
@@ -31,13 +33,13 @@
     <div class="col">
         <div class="card h-100 border-0 shadow-sm">
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="card-title text-muted mb-0 fw-bold">ОЗУ (RAM)</h5>
-                    <span class="material-symbols-outlined text-success fs-2">memory_alt</span>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="card-title text-muted mb-0 fw-bold">ОЗУ (RAM)</h6>
+                    <span class="material-symbols-outlined text-success fs-3">memory_alt</span>
                 </div>
                 <h3 class="fw-bold mb-0" id="ramText">0%</h3>
-                <small class="text-muted" id="ramDetails">0 GB / 0 GB</small>
-                <div class="progress mt-2" style="height: 10px;">
+                <small class="text-muted d-block mb-1" id="ramDetails" style="font-size: 0.75rem;">0 GB / 0 GB</small>
+                <div class="progress mt-2" style="height: 8px;">
                     <div id="ramBar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
                 </div>
             </div>
@@ -48,13 +50,13 @@
     <div class="col">
         <div class="card h-100 border-0 shadow-sm">
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="card-title text-muted mb-0 fw-bold">Файл подкачки (SWAP)</h5>
-                    <span class="material-symbols-outlined text-warning fs-2">swap_horiz</span>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="card-title text-muted mb-0 fw-bold">SWAP</h6>
+                    <span class="material-symbols-outlined text-warning fs-3">swap_horiz</span>
                 </div>
                 <h3 class="fw-bold mb-0" id="swapText">0%</h3>
-                <small class="text-muted" id="swapDetails">0 GB / 0 GB</small>
-                <div class="progress mt-2" style="height: 10px;">
+                <small class="text-muted d-block mb-1" id="swapDetails" style="font-size: 0.75rem;">0 GB / 0 GB</small>
+                <div class="progress mt-2" style="height: 8px;">
                     <div id="swapBar" class="progress-bar bg-warning" role="progressbar" style="width: 0%"></div>
                 </div>
             </div>
@@ -65,14 +67,34 @@
     <div class="col">
         <div class="card h-100 border-0 shadow-sm">
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="card-title text-muted mb-0 fw-bold">Место на диске</h5>
-                    <span class="material-symbols-outlined text-info fs-2">hard_drive</span>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="card-title text-muted mb-0 fw-bold">Диск</h6>
+                    <span class="material-symbols-outlined text-info fs-3">hard_drive</span>
                 </div>
                 <h3 class="fw-bold mb-0" id="diskText">0%</h3>
-                <small class="text-muted" id="diskDetails">0 GB / 0 GB</small>
-                <div class="progress mt-2" style="height: 10px;">
+                <small class="text-muted d-block mb-1" id="diskDetails" style="font-size: 0.75rem;">0 GB / 0 GB</small>
+                <div class="progress mt-2" style="height: 8px;">
                     <div id="diskBar" class="progress-bar bg-info" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- СЕТЬ (НОВАЯ КАРТОЧКА) -->
+    <div class="col">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body d-flex flex-column justify-content-center">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="card-title text-muted mb-0 fw-bold">Сеть</h6>
+                    <span class="material-symbols-outlined text-secondary fs-3">language</span>
+                </div>
+                <div class="d-flex align-items-center text-success mb-2">
+                    <span class="material-symbols-outlined fs-5 me-1">arrow_downward</span>
+                    <span class="fw-bold fs-5" id="netDownload">0 B/s</span>
+                </div>
+                <div class="d-flex align-items-center text-primary">
+                    <span class="material-symbols-outlined fs-5 me-1">arrow_upward</span>
+                    <span class="fw-bold fs-5" id="netUpload">0 B/s</span>
                 </div>
             </div>
         </div>

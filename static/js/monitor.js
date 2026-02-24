@@ -31,12 +31,30 @@ async function fetchStats() {
     }
 }
 
+// Функция для красивого вывода скорости сети
+function formatSpeed(bytesPerSec) {
+    if (bytesPerSec === 0) return '0 B/s';
+    const k = 1024;
+    const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+    const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
+    return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
 // Обновление верхних карточек (CPU, RAM, Swap, Disk)
 function updateDashboard(stats) {
     // CPU
-    document.getElementById('cpuText').innerText = stats.cpu + '%';
-    document.getElementById('cpuBar').style.width = stats.cpu + '%';
-    document.getElementById('cpuBar').className = 'progress-bar ' + getBarColorClass(stats.cpu);
+    // Поскольку мы изменили структуру stats.cpu в server.py, обновляем и здесь:
+    document.getElementById('cpuText').innerText = stats.cpu.percent + '%';
+    document.getElementById('cpuBar').style.width = stats.cpu.percent + '%';
+    document.getElementById('cpuBar').className = 'progress-bar ' + getBarColorClass(stats.cpu.percent);
+    
+    // Если виртуалка отдает частоту, пишем ее, иначе скрываем
+    const freqEl = document.getElementById('cpuFreq');
+    if (stats.cpu.freq_max > 0) {
+        freqEl.innerText = `${stats.cpu.freq_current} MHz / ${stats.cpu.freq_max} MHz`;
+    } else {
+        freqEl.innerText = "Частота скрыта гипервизором";
+    }
 
     // RAM
     document.getElementById('ramText').innerText = stats.ram.percent + '%';
@@ -55,6 +73,10 @@ function updateDashboard(stats) {
     document.getElementById('diskDetails').innerText = `${bytesToGB(stats.disk.used)} GB / ${bytesToGB(stats.disk.total)} GB`;
     document.getElementById('diskBar').style.width = stats.disk.percent + '%';
     document.getElementById('diskBar').className = 'progress-bar ' + getBarColorClass(stats.disk.percent);
+
+    // СЕТЬ
+    document.getElementById('netDownload').innerText = formatSpeed(stats.network.download);
+    document.getElementById('netUpload').innerText = formatSpeed(stats.network.upload);
 }
 
 // Обработчик клика по заголовку таблицы

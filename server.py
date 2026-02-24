@@ -7,6 +7,11 @@ import psutil
 from datetime import datetime
 from functools import wraps, lru_cache
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+import time
+
+# Глобальные переменные для расчета скорости сети
+last_net_io = None
+last_net_time = 0
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'fallback_secret_key_if_not_set')
@@ -477,18 +482,55 @@ def update_order():
 @app.route('/api/system_stats', methods=['GET'])
 @login_required
 def api_system_stats():
+    global last_net_io, last_net_time
+    
     # 1. Основные метрики системы
     cpu_percent = psutil.cpu_percent(interval=0.1)
+    
+    # Частота CPU (не во всех виртуалках доступна, поэтому используем try/except)
+    cpu_freq_current = 0
+    cpu_freq_max = 0
+    try:
+        freq = psutil.cpu_freq()
+        if freq:
+            cpu_freq_current = round(freq.current)
+            cpu_freq_max = round(freq.max)
+    except:
+        pass
     
     mem = psutil.virtual_memory()
     swap = psutil.swap_memory()
     disk = psutil.disk_usage('/')
     
+    # Расчет скорости сети
+    net_io = psutil.net_io_counters()
+    current_time = time.time()
+    
+    upload_speed = 0
+    download_speed = 0
+    
+    if last_net_io is not None and last_net_time > 0:
+        time_diff = current_time - last_net_time
+        if time_diff > 0:
+            upload_speed = (net_io.bytes_sent - last_net_io.bytes_sent) / time_diff
+            download_speed = (net_io.bytes_recv - last_net_io.bytes_recv) / time_diff
+            
+    last_net_io = net_io
+    last_net_time = current_time
+    
     stats = {
-        "cpu": cpu_percent,
+        "cpu": {
+            "percent": cpu_percent,
+            "freq_current": cpu_freq_current,
+            "freq_max": cpu_freq_max
+        },
         "ram": {"percent": mem.percent, "used": mem.used, "total": mem.total},
         "swap": {"percent": swap.percent, "used": swap.used, "total": swap.total},
-        "disk": {"percent": disk.percent, "used": disk.used, "total": disk.total}
+        "disk": {"percent": disk.percent, "used": disk.used, "total": disk.total},
+        "network": {
+            "upload": upload_speed,     # Байт в секунду
+            "download": download_speed  # Байт в секунду
+        }
     }
     
     # 2. Список процессов
@@ -496,10 +538,8 @@ def api_system_stats():
     for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'cpu_percent', 'memory_percent']):
         try:
             pinfo = proc.info
-            # Форматируем путь/команду
             cmdline = pinfo.get('cmdline')
             path = " ".join(cmdline) if cmdline else pinfo.get('name', '')
-            
             processes.append({
                 "pid": pinfo['pid'],
                 "name": pinfo['name'],
@@ -510,7 +550,6 @@ def api_system_stats():
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
             
-    # Отдаем топ-150 самых тяжелых процессов (чтобы не перегружать браузер)
     processes.sort(key=lambda x: x['cpu'], reverse=True)
     processes = processes[:150]
 
