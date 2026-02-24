@@ -141,26 +141,55 @@ def get_bots():
 
 def get_all_services():
     try:
+        # 1. Быстро получаем только имена всех сервисов
         res = subprocess.run(['systemctl', 'list-units', '--type=service', '--all', '--no-pager', '--no-legend'], capture_output=True, text=True)
-        services = []
+        service_names = []
         for line in res.stdout.split('\n'):
             if not line.strip(): continue
             parts = line.split()
-            if len(parts) >= 4:
-                service_name = parts[0]
-                if service_name.endswith('.service'):
-                    is_active = (parts[2] == 'active')
+            if parts and parts[0].endswith('.service'):
+                service_names.append(parts[0])
+                
+        if not service_names:
+            return []
+
+        # 2. Выгружаем свойства для всех найденных сервисов ОДНОЙ командой (очень быстро)
+        cmd = ['systemctl', 'show', '-p', 'Id,ActiveState,ExecStart'] + service_names
+        res2 = subprocess.run(cmd, capture_output=True, text=True)
+        
+        services = []
+        current_svc = {}
+        
+        lines = res2.stdout.split('\n')
+        lines.append('') # Чтобы гарантированно обработать последний блок
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if 'Id' in current_svc and current_svc['Id'].endswith('.service'):
+                    path_raw = current_svc.get('ExecStart', '')
+                    clean_path = ""
                     
-                    # Для системных сервисов (оригинальный путь, выключаем извлечение)
-                    exec_path, _, _ = get_exec_path(service_name, extract_python=False)
-                    
+                    match_argv = re.search(r'argv\[\]=(.*?)\s+;', path_raw)
+                    if match_argv:
+                        clean_path = match_argv.group(1).strip()
+                    else:
+                        match_path = re.search(r'path=(.*?)\s+;', path_raw)
+                        if match_path:
+                            clean_path = match_path.group(1).strip()
+
                     services.append({
-                        "name": service_name,
-                        "service": service_name,
-                        "active": is_active,
-                        "path": exec_path, 
+                        "name": current_svc['Id'],
+                        "service": current_svc['Id'],
+                        "active": (current_svc.get('ActiveState') == 'active'),
+                        "path": clean_path,
                         "logs": "Нажмите кнопку обновления логов (📄) для загрузки."
                     })
+                current_svc = {}
+            elif '=' in line:
+                key, val = line.split('=', 1)
+                current_svc[key] = val
+                
         return services
     except Exception as e:
         print(f"Ошибка получения сервисов: {e}")
@@ -450,17 +479,19 @@ def bot_action():
     action = request.json.get('action')
     is_system = request.json.get('is_system', False)
     
-    # Если это системный сервис, берем имя как есть. Если бот — добавляем префикс.
     svc = bot_name if is_system else f"{SERVICE_PREFIX}{bot_name}.service"
     
+    # Легкий запрос только для обновления статуса кнопок в таблице
+    if action == "status_only":
+        is_active = (run_command(f"systemctl is-active {svc}") == "active")
+        return jsonify({"success": True, "active": is_active})
+        
     if action == "restart": run_command(f"systemctl restart {svc}")
     elif action == "start": run_command(f"systemctl start {svc}")
     elif action == "stop": run_command(f"systemctl stop {svc}")
     elif action == "delete":
-        # ЗАЩИТА: Запрещаем удалять системные службы через панель
         if is_system:
             return jsonify({"success": False, "error": "Удаление системных служб запрещено."})
-            
         run_command(f"systemctl stop {svc} && systemctl disable {svc}")
         os.remove(os.path.join(SYSTEMD_DIR, svc))
         run_command("systemctl daemon-reload")
