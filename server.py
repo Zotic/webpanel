@@ -324,7 +324,7 @@ def sync_tc_rules():
 # При запуске сервера сразу синхронизируем правила
 sync_tc_rules()
 
-def get_active_vpn_users():
+def get_active_vpn_users_DELETE():
     """Ищет IP подключенных пользователей и разделяет их на входящие/исходящие соединения"""
     proxy_names = ['xray', '3proxy', 'danted', 'shadowbox']
     proxy_pids = set()
@@ -911,34 +911,80 @@ def get_known_usernames():
     
     return ip_to_user
 
-# API для получения списка пользователей
+def get_active_vpn_users():
+    """Собирает входящие IP клиентов и исходящие IP сайтов"""
+    proxy_names = ['xray', '3proxy', 'danted', 'shadowbox']
+    proxy_pids = set()
+    
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            if proc.info['name'] in proxy_names:
+                proxy_pids.add(proc.info['pid'])
+        except: pass
+
+    inbound_ips = {}  # Кто подключился к нам
+    outbound_ips = {} # Куда мы подключились
+    
+    local_ips = set()
+    for interface, snics in psutil.net_if_addrs().items():
+        for snic in snics:
+            if snic.family == socket.AF_INET:
+                local_ips.add(snic.address)
+
+    for conn in psutil.net_connections(kind='tcp'):
+        if conn.status == 'ESTABLISHED' and conn.pid in proxy_pids:
+            if conn.laddr and conn.raddr:
+                remote_ip = conn.raddr.ip
+                
+                if remote_ip in local_ips or remote_ip.startswith('127.'):
+                    continue
+
+                # Высокий удаленный порт + низкий локальный = Входящее (клиент -> VPN)
+                if conn.raddr.port > 10240 and conn.laddr.port < 10240:
+                    inbound_ips[remote_ip] = inbound_ips.get(remote_ip, 0) + 1
+                # Низкий удаленный порт (443, 80) = Исходящее (VPN -> Интернет)
+                else:
+                    outbound_ips[remote_ip] = outbound_ips.get(remote_ip, 0) + 1
+
+    return inbound_ips, outbound_ips
+
 @app.route('/api/vpn_users', methods=['GET'])
 @login_required
 def api_vpn_users():
-    active_ips = get_active_vpn_users() # Теперь возвращает словарь с inbound/outbound
+    inbound, outbound = get_active_vpn_users()
     limits = get_limits()
     known_users = get_known_usernames()
     
-    all_ips = set(active_ips.keys()).union(set(limits.keys()))
+    # 1. Формируем Входящие подключения (Клиенты)
+    inbound_list = []
+    all_inbound_ips = set(inbound.keys()).union(set(limits.keys()))
     
-    users = []
-    for ip in all_ips:
-        username = known_users.get(ip, "")
-        conn_data = active_ips.get(ip, {"inbound": 0, "outbound": 0})
-        total_conn = conn_data["inbound"] + conn_data["outbound"]
-        
-        users.append({
+    for ip in all_inbound_ips:
+        inbound_list.append({
             "ip": ip,
-            "username": username,
-            "connections_total": total_conn,
-            "connections_in": conn_data["inbound"],
-            "connections_out": conn_data["outbound"],
+            "username": known_users.get(ip, ""),
+            "connections": inbound.get(ip, 0),
             "limit": limits.get(ip, {}).get('speed', None)
         })
-        
-    # Сортируем: сначала активные (по общему числу), затем по лимитам
-    users.sort(key=lambda x: (x['connections_total'] > 0, x['connections_total']), reverse=True)
-    return jsonify({"success": True, "users": users})
+    inbound_list.sort(key=lambda x: (x['connections'] > 0, x['connections']), reverse=True)
+
+    # 2. Формируем Исходящие подключения (Сайты) с кэшированным реверс-ДНС
+    outbound_list = []
+    for ip, count in outbound.items():
+        # Быстрый резолв через нашу кэширующую функцию
+        domain = reverse_dns(ip)
+        outbound_list.append({
+            "ip": ip,
+            "domain": domain if domain else "",
+            "connections": count
+        })
+    outbound_list.sort(key=lambda x: x['connections'], reverse=True)
+
+    return jsonify({
+        "success": True, 
+        "inbound": inbound_list,
+        "outbound": outbound_list
+    })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=443, debug=True)
