@@ -577,6 +577,24 @@ def get_outline_metrics():
     data.sort(key=lambda x: x['raw_bytes'], reverse=True)
     return data
 
+@app.route('/api/outline/reset', methods=['POST'])
+@login_required
+def reset_outline_stats():
+    # Находим имя контейнера
+    container_name = "shadowbox"
+    try:
+        res = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'], capture_output=True, text=True)
+        if 'shadowbox' not in res.stdout:
+            res2 = subprocess.run(['docker', 'ps', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
+            if res2.stdout.strip():
+                container_name = res2.stdout.strip().split('\n')[0]
+                
+        # Перезапускаем контейнер (это обнулит счетчики Prometheus, ключи и пользователи останутся!)
+        subprocess.run(['docker', 'restart', container_name])
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 @app.route('/vpn')
 @login_required
 def vpn():
