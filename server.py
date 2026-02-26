@@ -274,6 +274,79 @@ def get_dns_queries():
         return []
 
 # ========================================
+# УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ И СКОРОСТЬЮ (Traffic Control)
+# ========================================
+LIMITS_FILE = "ip_limits.json"
+
+def get_limits():
+    if os.path.exists(LIMITS_FILE):
+        try:
+            with open(LIMITS_FILE, 'r') as f:
+                return json.load(f)
+        except: pass
+    return {}
+
+def save_limits(limits):
+    with open(LIMITS_FILE, 'w') as f:
+        json.dump(limits, f)
+
+def get_main_interface():
+    """Определяем главный сетевой интерфейс, смотрящий в интернет"""
+    try:
+        out = run_command("ip route get 8.8.8.8")
+        match = re.search(r'dev\s+([^\s]+)', out)
+        return match.group(1) if match else "eth0"
+    except:
+        return "eth0"
+
+def sync_tc_rules():
+    """Синхронизирует правила Linux TC с нашим файлом"""
+    iface = get_main_interface()
+    limits = get_limits()
+
+    # Сбрасываем все текущие ограничения
+    run_command(f"tc qdisc del dev {iface} root")
+
+    if not limits:
+        return # Если файла нет или он пуст - оставляем интернет свободным
+
+    # Создаем базовое дерево классов
+    run_command(f"tc qdisc add dev {iface} root handle 1: htb default 10")
+    run_command(f"tc class add dev {iface} parent 1: classid 1:10 htb rate 1000mbit")
+
+    # Применяем лимиты по IP адресам
+    for ip, data in limits.items():
+        cid = data['class_id']
+        speed = data['speed']
+        run_command(f"tc class add dev {iface} parent 1: classid 1:{cid} htb rate {speed}mbit")
+        run_command(f"tc filter add dev {iface} protocol ip parent 1:0 prio 1 u32 match ip dst {ip}/32 flowid 1:{cid}")
+
+# При запуске сервера сразу синхронизируем правила
+sync_tc_rules()
+
+def get_active_vpn_users():
+    """Ищет, какие IP подключены к прокси-серверам в данный момент"""
+    proxy_names = ['xray', '3proxy', 'danted']
+    proxy_pids = set()
+    
+    # Находим PID процессов наших прокси
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            if proc.info['name'] in proxy_names:
+                proxy_pids.add(proc.info['pid'])
+        except: pass
+
+    # Считаем подключения
+    active_ips = {}
+    for conn in psutil.net_connections(kind='tcp'):
+        if conn.status == 'ESTABLISHED' and conn.pid in proxy_pids:
+            if conn.raddr:
+                ip = conn.raddr.ip
+                active_ips[ip] = active_ips.get(ip, 0) + 1
+
+    return active_ips
+
+# ========================================
 # МАРШРУТЫ (Сайт)
 # ========================================
 @app.route('/login', methods=['GET', 'POST'])
@@ -686,5 +759,58 @@ def api_system_logs():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
+# Маршрут для страницы Пользователей
+@app.route('/vpn_users')
+@login_required
+def vpn_users_page():
+    return render_template('vpn_users.html')
+
+# API для получения списка пользователей
+@app.route('/api/vpn_users', methods=['GET'])
+@login_required
+def api_vpn_users():
+    active_ips = get_active_vpn_users()
+    limits = get_limits()
+    
+    # Собираем все IP (и те что сейчас активны, и те что оффлайн, но имеют лимит)
+    all_ips = set(active_ips.keys()).union(set(limits.keys()))
+    
+    users = []
+    for ip in all_ips:
+        users.append({
+            "ip": ip,
+            "connections": active_ips.get(ip, 0),
+            "limit": limits.get(ip, {}).get('speed', None)
+        })
+        
+    # Сортируем: сначала активные, затем по кол-ву соединений
+    users.sort(key=lambda x: (x['connections'] > 0, x['connections']), reverse=True)
+    return jsonify({"success": True, "users": users})
+
+# API для установки/снятия лимита скорости
+@app.route('/api/set_speed_limit', methods=['POST'])
+@login_required
+def api_set_speed_limit():
+    ip = request.json.get('ip')
+    speed = request.json.get('speed') # В Мбит/с. Если None - удаляем лимит
+    
+    limits = get_limits()
+    
+    if speed is None or speed == 0:
+        if ip in limits:
+            del limits[ip]
+    else:
+        # Генерируем уникальный class_id для TC (от 11 до 9999)
+        existing_ids = [v['class_id'] for v in limits.values()]
+        new_id = 11
+        while new_id in existing_ids:
+            new_id += 1
+            
+        limits[ip] = {"class_id": new_id, "speed": int(speed)}
+        
+    save_limits(limits)
+    sync_tc_rules() # Перезапускаем правила Linux
+    return jsonify({"success": True})
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=443, debug=True)
