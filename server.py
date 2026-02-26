@@ -485,24 +485,31 @@ def get_danted_connections():
             if user_m: 
                 user = user_m.group(1)
             
-            # Парсим логи коннектов
+            # Парсим логи КОННЕКТОВ (когда идет запрос к сайту)
             if "tcp/connect" in line:
-                m = re.search(r'@([\d\.]+)\.\d+\s+[\d\.]+\.\d+.*?\s([\d\.]+)\.(\d+)', line)
-                if m:
-                    client = m.group(1)
-                    dest = f"{m.group(2)}:{m.group(3)}"
-            # Парсим логи входящих запросов
+                # 1. Достаем IP клиента (тот что после @)
+                client_m = re.search(r'@(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\.\d+', line)
+                if client_m:
+                    client = client_m.group(1)
+
+                # 2. Достаем финальную ЦЕЛЬ (IP сайта). 
+                # Danted пишет цепочку вида: "-> 45.85.117.150.53210 35.83.208.188.10443"
+                # Нам нужна вторая часть (целевой IP и порт, разделенные точкой)
+                dest_m = re.search(r'->\s+[\d\.]+\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d+)', line)
+                if dest_m:
+                    dest = f"{dest_m.group(1)}:{dest_m.group(2)}"
+
+            # Парсим логи ВХОДЯЩИХ запросов (до того как сформирована цель)
             elif "tcp/accept" in line:
-                m = re.search(r'[:\]]\s+([\d\.]+)\.\d+\s+([\d\.]+)\.\d+', line)
+                m = re.search(r'[:\]]\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\.\d+\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
                 if m:
                     client = m.group(1)
                     dest = f"Local: {m.group(2)}"
 
             # Добавляем только если удалось извлечь хотя бы IP клиента
             if client != "unknown":
-                # Очищаем "сырой" лог для вывода
                 raw_log = line.split(']: ')[-1] if ']: ' in line else line
-                # Чтобы лог не был слишком длинным, убираем из него кусок с юзернеймом
+                # Убираем юзернейм из лога для компактности
                 if user != "-":
                     raw_log = re.sub(r'username%[^@]+@', '', raw_log)
 
