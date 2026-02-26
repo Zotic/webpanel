@@ -510,35 +510,57 @@ def get_outline_metrics():
     keys_info = {}
     
     # 1. Достаем имена ключей из конфигурации Outline
+    # Outline Manager обычно хранит базу в /opt/outline/persisted-state/shadowbox_config.json
+    config_path = '/opt/outline/persisted-state/shadowbox_config.json'
     try:
-        if os.path.exists('/opt/outline/persisted-state/shadowbox_config.json'):
-            with open('/opt/outline/persisted-state/shadowbox_config.json', 'r') as f:
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
                 config = json.load(f)
                 for k in config.get('keys', []):
-                    keys_info[str(k.get('id'))] = k.get('name') or f"Ключ {k.get('id')}"
-    except:
-        pass
+                    # Сохраняем имя (если оно пустое - пишем просто ID)
+                    keys_info[str(k.get('id'))] = k.get('name') or f"Без имени (ID: {k.get('id')})"
+    except Exception as e:
+        print("Outline config error:", e)
 
-    # 2. Достаем статистику трафика из Prometheus (внутри контейнера shadowbox)
+    # 2. Ищем правильное имя контейнера Outline (обычно shadowbox)
+    container_name = "shadowbox"
+    try:
+        res = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'], capture_output=True, text=True)
+        if 'shadowbox' not in res.stdout:
+            # Пытаемся найти контейнер по образу (quay.io/outline/shadowbox)
+            res2 = subprocess.run(['docker', 'ps', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
+            if res2.stdout.strip():
+                container_name = res2.stdout.strip().split('\n')[0]
+    except: pass
+
+    # 3. Вытаскиваем статистику трафика из Prometheus внутри найденного контейнера
     metrics_dict = {}
     try:
-        res = subprocess.run(['docker', 'exec', 'shadowbox', 'wget', '-qO-', 'http://localhost:9090/metrics'], capture_output=True, text=True)
+        # wget -qO- забирает данные по HTTP прямо внутри докера
+        res = subprocess.run(['docker', 'exec', container_name, 'wget', '-qO-', 'http://localhost:9092/metrics'], capture_output=True, text=True)
+        
+        # Если wget не сработал (в новых версиях Outline alpine image может не быть wget), пробуем curl
+        if not res.stdout.strip():
+             res = subprocess.run(['docker', 'exec', container_name, 'curl', '-s', 'http://localhost:9092/metrics'], capture_output=True, text=True)
+             
         for line in res.stdout.split('\n'):
             if line.startswith('shadowsocks_data_bytes'):
-                # Строка выглядит так: shadowsocks_data_bytes{access_key="1",dir="c<p"} 1542123
+                # Пример строки: shadowsocks_data_bytes{access_key="1",dir="c<p"} 1542123
                 match = re.search(r'access_key="([^"]+)"', line)
                 if match:
                     kid = match.group(1)
-                    val = float(line.split()[-1])
-                    metrics_dict[kid] = metrics_dict.get(kid, 0) + val
-    except:
-        pass
+                    try:
+                        val = float(line.split()[-1])
+                        metrics_dict[kid] = metrics_dict.get(kid, 0) + val
+                    except: pass
+    except Exception as e:
+        print("Outline metrics error:", e)
 
-    # 3. Формируем красивый список
+    # 4. Формируем список для HTML
     for kid, bytes_total in metrics_dict.items():
-        name = keys_info.get(kid, f"Ключ {kid}")
+        name = keys_info.get(kid, f"Неизвестный ключ (ID: {kid})")
         
-        # Конвертируем байты в МБ или ГБ
+        # Перевод байт в МБ / ГБ
         if bytes_total > 1024**3:
             usage = f"{(bytes_total / 1024**3):.2f} GB"
         else:
@@ -551,7 +573,7 @@ def get_outline_metrics():
             'raw_bytes': bytes_total
         })
 
-    # Сортируем: кто скачал больше всех - тот сверху
+    # Сортируем: кто больше скачал, тот выше
     data.sort(key=lambda x: x['raw_bytes'], reverse=True)
     return data
 
