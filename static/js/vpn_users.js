@@ -26,7 +26,7 @@ function renderUsers(users) {
     tbody.innerHTML = '';
 
     if (users.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted">Нет подключенных пользователей</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-5 text-muted">Нет подключенных пользователей</td></tr>';
         return;
     }
 
@@ -54,9 +54,15 @@ function renderUsers(users) {
             actionButtons = `<button class="btn btn-sm btn-outline-warning" onclick="openLimitModal('${user.ip}', '')">Ограничить</button>`;
         }
 
+        // Если имя не найдено, пишем "Неизвестно" или "Xray/Без авторизации"
+        let userNameHtml = user.username 
+            ? `<span class="fw-bold text-dark">${user.username}</span>` 
+            : `<span class="text-muted small">Без авторизации (или Xray)</span>`;
+
         tr.innerHTML = `
             <td class="ps-4">${statusBadge}</td>
             <td class="fw-bold font-monospace text-primary">${user.ip}</td>
+            <td>${userNameHtml}</td> <!-- ДОБАВЛЕНО ИМЯ -->
             <td><span class="badge bg-light text-dark border fs-6">${user.connections}</span></td>
             <td>${limitHtml}</td>
             <td class="pe-4 text-end">${actionButtons}</td>
