@@ -33,10 +33,10 @@ function renderUsers(users) {
     users.forEach(user => {
         const tr = document.createElement('tr');
         
-        // Статус
-        let statusBadge = user.connections > 0 
-            ? '<span class="badge bg-success">ОНЛАЙН</span>' 
-            : '<span class="badge bg-secondary">ОФФЛАЙН</span>';
+        // Статус (центрируем с помощью Bootstrap классов)
+        let statusBadge = user.connections_total > 0 
+            ? '<span class="badge bg-success w-100">ОНЛАЙН</span>' 
+            : '<span class="badge bg-secondary w-100">ОФФЛАЙН</span>';
             
         // Лимит скорости
         let limitHtml = user.limit 
@@ -54,18 +54,33 @@ function renderUsers(users) {
             actionButtons = `<button class="btn btn-sm btn-outline-warning" onclick="openLimitModal('${user.ip}', '')">Ограничить</button>`;
         }
 
-        // Если имя не найдено, пишем "Неизвестно" или "Xray/Без авторизации"
+        // Если имя не найдено
         let userNameHtml = user.username 
             ? `<span class="fw-bold text-dark">${user.username}</span>` 
             : `<span class="text-muted small">Без авторизации (или Xray)</span>`;
 
+        // Формируем красивый блок с соединениями (Входящие ↓ / Исходящие ↑)
+        let connectionsHtml = '-';
+        if (user.connections_total > 0) {
+            connectionsHtml = `
+                <div class="d-flex justify-content-center gap-2">
+                    <span class="badge bg-light text-success border" title="Входящие (от клиента к серверу)">
+                        <span class="material-symbols-outlined align-middle" style="font-size: 14px;">arrow_downward</span> ${user.connections_in}
+                    </span>
+                    <span class="badge bg-light text-primary border" title="Исходящие (от сервера в интернет)">
+                        <span class="material-symbols-outlined align-middle" style="font-size: 14px;">arrow_upward</span> ${user.connections_out}
+                    </span>
+                </div>
+            `;
+        }
+
         tr.innerHTML = `
-            <td class="ps-4">${statusBadge}</td>
-            <td class="fw-bold font-monospace text-primary">${user.ip}</td>
-            <td>${userNameHtml}</td> <!-- ДОБАВЛЕНО ИМЯ -->
-            <td><span class="badge bg-light text-dark border fs-6">${user.connections}</span></td>
-            <td>${limitHtml}</td>
-            <td class="pe-4 text-end">${actionButtons}</td>
+            <td class="text-center align-middle" style="width: 100px;">${statusBadge}</td>
+            <td class="fw-bold font-monospace text-primary align-middle">${user.ip}</td>
+            <td class="align-middle">${userNameHtml}</td>
+            <td class="text-center align-middle">${connectionsHtml}</td>
+            <td class="align-middle">${limitHtml}</td>
+            <td class="pe-4 text-end align-middle">${actionButtons}</td>
         `;
         tbody.appendChild(tr);
     });
