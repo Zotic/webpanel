@@ -496,6 +496,65 @@ def get_danted_connections():
         print("Ошибка danted:", e)
         return []
 
+def get_outline_status():
+    """Проверяет, запущен ли Docker-контейнер Outline (shadowbox)"""
+    try:
+        res = subprocess.run(['docker', 'ps', '--filter', 'name=shadowbox', '--format', '{{.Status}}'], capture_output=True, text=True)
+        return "active" if "Up" in res.stdout else "inactive"
+    except:
+        return "unknown"
+
+def get_outline_metrics():
+    """Собирает имена пользователей из БД Outline и трафик из Prometheus"""
+    data = []
+    keys_info = {}
+    
+    # 1. Достаем имена ключей из конфигурации Outline
+    try:
+        if os.path.exists('/opt/outline/persisted-state/shadowbox_config.json'):
+            with open('/opt/outline/persisted-state/shadowbox_config.json', 'r') as f:
+                config = json.load(f)
+                for k in config.get('keys', []):
+                    keys_info[str(k.get('id'))] = k.get('name') or f"Ключ {k.get('id')}"
+    except:
+        pass
+
+    # 2. Достаем статистику трафика из Prometheus (внутри контейнера shadowbox)
+    metrics_dict = {}
+    try:
+        res = subprocess.run(['docker', 'exec', 'shadowbox', 'wget', '-qO-', 'http://localhost:9092/metrics'], capture_output=True, text=True)
+        for line in res.stdout.split('\n'):
+            if line.startswith('shadowsocks_data_bytes'):
+                # Строка выглядит так: shadowsocks_data_bytes{access_key="1",dir="c<p"} 1542123
+                match = re.search(r'access_key="([^"]+)"', line)
+                if match:
+                    kid = match.group(1)
+                    val = float(line.split()[-1])
+                    metrics_dict[kid] = metrics_dict.get(kid, 0) + val
+    except:
+        pass
+
+    # 3. Формируем красивый список
+    for kid, bytes_total in metrics_dict.items():
+        name = keys_info.get(kid, f"Ключ {kid}")
+        
+        # Конвертируем байты в МБ или ГБ
+        if bytes_total > 1024**3:
+            usage = f"{(bytes_total / 1024**3):.2f} GB"
+        else:
+            usage = f"{(bytes_total / 1024**2):.2f} MB"
+
+        data.append({
+            'id': kid,
+            'name': name,
+            'usage': usage,
+            'raw_bytes': bytes_total
+        })
+
+    # Сортируем: кто скачал больше всех - тот сверху
+    data.sort(key=lambda x: x['raw_bytes'], reverse=True)
+    return data
+
 @app.route('/vpn')
 @login_required
 def vpn():
@@ -503,9 +562,11 @@ def vpn():
                            xray_status=run_command("systemctl is-active xray") == "active",
                            proxy_status=run_command("systemctl is-active 3proxy") == "active",
                            danted_status=run_command("systemctl is-active danted") == "active",
+                           outline_status=(get_outline_status() == "active"),
                            xray_connections=get_recent_connections(),
                            proxy_connections=get_3proxy_connections(),
                            danted_connections=get_danted_connections(),
+                           outline_metrics=get_outline_metrics(),
                            dns_queries=get_dns_queries())
 
 @app.route('/monitor')
