@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <h2 class="fw-bold text-secondary mb-0">Пользователи VPN (IP)</h2>
+    <div class="d-flex gap-2">
+        <button class="btn btn-primary shadow-sm d-flex align-items-center gap-1" onclick="fetchUsers()" style="border-radius: 8px;">
+            <span class="material-symbols-outlined fs-6">refresh</span> Обновить список
+        </button>
+    </div>
+</div>
+
+<div class="alert alert-info shadow-sm" style="border-radius: 12px;">
+    <span class="material-symbols-outlined fs-5 align-middle me-1">info</span>
+    Здесь отображаются все IP-адреса, подключенные к вашим прокси-серверам прямо сейчас. Вы можете жестко ограничить входящую скорость для любого пользователя. Ограничение работает на уровне ядра ОС.
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table align-middle mb-0 text-nowrap">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">Статус</th>
+                        <th>IP Адрес</th>
+                        <th>Кол-во соединений</th>
+                        <th>Ограничение скорости</th>
+                        <th class="pe-4 text-end">Действие</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                    <tr><td colspan="5" class="text-center py-4 text-muted">Загрузка данных...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно установки лимита -->
+<div class="modal fade" id="limitModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius: 12px; border: none;">
+            <div class="modal-header border-bottom-0">
+                <h5 class="modal-title fw-bold">Ограничить скорость</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-0">
+                <p class="text-muted small">Установите лимит скачивания для IP: <strong id="modalIpText" class="text-dark"></strong></p>
+                <div class="input-group mb-3">
+                    <input type="number" id="speedInput" class="form-control" placeholder="Например: 5" min="1">
+                    <span class="input-group-text">Мбит/с</span>
+                </div>
+            </div>
+            <div class="modal-footer border-top-0">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="applyLimit()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/vpn_users.js"></script>
+{% endblock %}
