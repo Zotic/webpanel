@@ -894,18 +894,21 @@ def vpn_users_page():
     return render_template('vpn_users.html')
 
 def get_active_vpn_users():
-    """Собирает входящие IP клиентов и исходящие IP сайтов"""
+    """Собирает входящие IP клиентов и исходящие IP сайтов (Поддерживает TCP и UDP)"""
     proxy_names = ['xray', '3proxy', 'danted', 'shadowbox']
     proxy_pids = set()
     
+    # 1. Находим PID всех прокси-процессов
     for proc in psutil.process_iter(['pid', 'name']):
         try:
-            if proc.info['name'] in proxy_names:
-                proxy_pids.add(proc.info['pid'])
+            # Используем in, так как процесс может называться /usr/bin/3proxy
+            for p_name in proxy_names:
+                if p_name in proc.info['name'].lower():
+                    proxy_pids.add(proc.info['pid'])
         except: pass
 
-    inbound_ips = {}  # Кто подключился к нам
-    outbound_ips = {} # Куда мы подключились
+    inbound_ips = {}  
+    outbound_ips = {} 
     
     local_ips = set()
     for interface, snics in psutil.net_if_addrs().items():
@@ -913,43 +916,59 @@ def get_active_vpn_users():
             if snic.family == socket.AF_INET:
                 local_ips.add(snic.address)
 
-    for conn in psutil.net_connections(kind='tcp'):
-        if conn.status == 'ESTABLISHED' and conn.pid in proxy_pids:
-            if conn.laddr and conn.raddr:
-                remote_ip = conn.raddr.ip
-                
-                if remote_ip in local_ips or remote_ip.startswith('127.'):
-                    continue
+    # 2. Узнаем, на каких портах НАШИ прокси ожидают клиентов (LISTEN)
+    listening_ports = set()
+    for conn in psutil.net_connections(kind='inet'): # tcp и udp
+        if conn.pid in proxy_pids:
+            if conn.status == 'LISTEN' or conn.type == socket.SOCK_DGRAM:
+                listening_ports.add(conn.laddr.port)
 
-                # Высокий удаленный порт + низкий локальный = Входящее (клиент -> VPN)
-                if conn.raddr.port > 10240 and conn.laddr.port < 10240:
-                    inbound_ips[remote_ip] = inbound_ips.get(remote_ip, 0) + 1
-                # Низкий удаленный порт (443, 80) = Исходящее (VPN -> Интернет)
-                else:
-                    outbound_ips[remote_ip] = outbound_ips.get(remote_ip, 0) + 1
+    # 3. Анализируем все активные соединения
+    for conn in psutil.net_connections(kind='inet'):
+        if conn.pid in proxy_pids and conn.raddr:
+            remote_ip = conn.raddr.ip
+            
+            # Игнорируем внутренние системные адреса
+            if remote_ip in local_ips or remote_ip.startswith('127.') or remote_ip.startswith('::1'):
+                continue
+                
+            # Если локальный порт соединения совпадает с портом, который прокси "слушает" - это Входящее (Клиент)
+            if conn.laddr.port in listening_ports:
+                inbound_ips[remote_ip] = inbound_ips.get(remote_ip, 0) + 1
+            # Иначе прокси сам инициировал запрос - это Исходящее (Интернет)
+            else:
+                outbound_ips[remote_ip] = outbound_ips.get(remote_ip, 0) + 1
 
     return inbound_ips, outbound_ips
 
+
 def analyze_proxy_logs():
-    """Связывает IP с именами и определяет, кто к каким сайтам обращался"""
-    ip_to_user = {}
-    target_to_user = {}
+    """Связывает IP с именами и определяет, кто к каким сайтам обращался (учитывает несколько юзеров на 1 IP)"""
+    ip_to_users = {}      # IP -> Множество (Set) юзеров
+    target_to_users = {}  # Сайт -> Множество (Set) юзеров
     
+    def add_user_to_ip(ip, user):
+        if user and user not in ('-', 'Unknown', 'unknown'):
+            if ip not in ip_to_users:
+                ip_to_users[ip] = set()
+            ip_to_users[ip].add(user)
+
     def add_target(target, client_ip, user):
         target_ip = target.split(':')[0]
-        # Если есть юзернейм - берем его, иначе берем IP клиента
-        display = user if user and user not in ('-', 'Unknown', 'unknown') else client_ip
-        if target_ip not in target_to_user:
-            target_to_user[target_ip] = set()
-        target_to_user[target_ip].add(display)
+        if target_ip not in target_to_users:
+            target_to_users[target_ip] = set()
+            
+        if user and user not in ('-', 'Unknown', 'unknown'):
+            target_to_users[target_ip].add(user)
+        else:
+            target_to_users[target_ip].add(client_ip)
 
     # Анализируем 3proxy
     try:
         for c in get_3proxy_connections():
             client_ip = c['client'].split(':')[0]
             user = c['user']
-            if user and user not in ('Unknown', '-'):
-                ip_to_user[client_ip] = user
+            add_user_to_ip(client_ip, user)
             if c['dest'] != 'ОШИБКА':
                 add_target(c['dest'], client_ip, user)
     except: pass
@@ -959,9 +978,8 @@ def analyze_proxy_logs():
         for c in get_danted_connections():
             client_ip = c['client'].split(':')[0]
             user = c['user']
-            if user and user != '-':
-                ip_to_user[client_ip] = user
-            if c['dest'] != 'unknown' and not c['dest'].startswith('Local:'):
+            add_user_to_ip(client_ip, user)
+            if c['dest'] != 'unknown' and not str(c['dest']).startswith('Local:'):
                 add_target(c['dest'], client_ip, user)
     except: pass
 
@@ -972,28 +990,30 @@ def analyze_proxy_logs():
             add_target(c['dest'], client_ip, None)
     except: pass
     
-    # Финальная обработка: если в списках целей остался IP клиента, 
-    # а мы для него уже нашли имя в других логах - заменяем IP на Имя
+    # Преобразуем IP-адреса клиентов в имена пользователей (если с одного IP сидит несколько, перечислим всех)
     final_target_to_user = {}
-    for target, userset in target_to_user.items():
+    for target, userset in target_to_users.items():
         final_set = set()
         for u in userset:
-            if u in ip_to_user:
-                final_set.add(ip_to_user[u])
+            if u in ip_to_users:
+                for known_user in ip_to_users[u]:
+                    final_set.add(known_user)
             else:
                 final_set.add(u)
         final_target_to_user[target] = list(final_set)
         
-    return ip_to_user, final_target_to_user
+    # Преобразуем словарь {IP: set("Zotic", "Ivan")} в {IP: "Zotic, Ivan"} для удобного вывода в HTML
+    final_ip_to_users = {ip: ", ".join(users) for ip, users in ip_to_users.items()}
+        
+    return final_ip_to_users, final_target_to_user
 
 
-# API для получения списка пользователей и подключений
 @app.route('/api/vpn_users', methods=['GET'])
 @login_required
 def api_vpn_users():
     inbound, outbound = get_active_vpn_users()
     limits = get_limits()
-    known_users, target_to_user = analyze_proxy_logs() # Вызываем умный анализатор
+    known_users, target_to_user = analyze_proxy_logs()
     
     # 1. ВХОДЯЩИЕ (Клиенты)
     inbound_list = []
@@ -1002,7 +1022,7 @@ def api_vpn_users():
     for ip in all_inbound_ips:
         inbound_list.append({
             "ip": ip,
-            "username": known_users.get(ip, ""),
+            "username": known_users.get(ip, ""), # Теперь здесь может быть "User1, User2"
             "connections": inbound.get(ip, 0),
             "limit": limits.get(ip, {}).get('speed', None)
         })
@@ -1013,9 +1033,7 @@ def api_vpn_users():
     for ip, count in outbound.items():
         domain = reverse_dns(ip)
         
-        # Пытаемся понять, кто сделал запрос к этому IP
         users_list = target_to_user.get(ip, [])
-        # Если прокси записал в лог домен вместо IP, проверяем и домен
         if not users_list and domain and domain in target_to_user:
             users_list = target_to_user[domain]
             
@@ -1025,7 +1043,7 @@ def api_vpn_users():
             "ip": ip,
             "domain": domain if domain else "",
             "connections": count,
-            "users": users_str # Передаем юзеров на фронтенд
+            "users": users_str
         })
     outbound_list.sort(key=lambda x: x['connections'], reverse=True)
 
