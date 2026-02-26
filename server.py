@@ -915,25 +915,29 @@ def get_known_usernames():
 @app.route('/api/vpn_users', methods=['GET'])
 @login_required
 def api_vpn_users():
-    active_ips = get_active_vpn_users()
+    active_ips = get_active_vpn_users() # Теперь возвращает словарь с inbound/outbound
     limits = get_limits()
-    known_users = get_known_usernames() # Вызываем новую функцию
+    known_users = get_known_usernames()
     
     all_ips = set(active_ips.keys()).union(set(limits.keys()))
     
     users = []
     for ip in all_ips:
-        # Проверяем, знаем ли мы имя для этого IP
         username = known_users.get(ip, "")
+        conn_data = active_ips.get(ip, {"inbound": 0, "outbound": 0})
+        total_conn = conn_data["inbound"] + conn_data["outbound"]
         
         users.append({
             "ip": ip,
-            "username": username, # Передаем имя на фронтенд
-            "connections": active_ips.get(ip, 0),
+            "username": username,
+            "connections_total": total_conn,
+            "connections_in": conn_data["inbound"],
+            "connections_out": conn_data["outbound"],
             "limit": limits.get(ip, {}).get('speed', None)
         })
         
-    users.sort(key=lambda x: (x['connections'] > 0, x['connections']), reverse=True)
+    # Сортируем: сначала активные (по общему числу), затем по лимитам
+    users.sort(key=lambda x: (x['connections_total'] > 0, x['connections_total']), reverse=True)
     return jsonify({"success": True, "users": users})
 
 if __name__ == '__main__':
