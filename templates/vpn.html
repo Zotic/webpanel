@@ -221,4 +221,25 @@
         }
     });
 </script>
+
+<script>
+    async function resetOutlineStats() {
+        if (!confirm("Вы уверены? Это обнулит статистику трафика для всех ключей. Сами ключи НЕ удалятся.")) return;
+        
+        try {
+            const res = await fetch('/api/outline/reset', { method: 'POST' });
+            if (res.status === 401) { location.reload(); return; }
+            const data = await res.json();
+            
+            if (data.success) {
+                // Ждем пару секунд, пока Docker поднимает контейнер, и обновляем страницу
+                setTimeout(() => location.reload(), 2000); 
+            } else {
+                alert('Ошибка: ' + data.error);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+</script>
 {% endblock %}
