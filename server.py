@@ -522,7 +522,7 @@ def get_outline_metrics():
     # 2. Достаем статистику трафика из Prometheus (внутри контейнера shadowbox)
     metrics_dict = {}
     try:
-        res = subprocess.run(['docker', 'exec', 'shadowbox', 'wget', '-qO-', 'http://localhost:9092/metrics'], capture_output=True, text=True)
+        res = subprocess.run(['docker', 'exec', 'shadowbox', 'wget', '-qO-', 'http://localhost:9090/metrics'], capture_output=True, text=True)
         for line in res.stdout.split('\n'):
             if line.startswith('shadowsocks_data_bytes'):
                 # Строка выглядит так: shadowsocks_data_bytes{access_key="1",dir="c<p"} 1542123
