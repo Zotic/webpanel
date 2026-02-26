@@ -8,7 +8,7 @@
     </button>
 </div>
 
-<!-- Статус сервисов (Теперь 4 колонки: col-xl-3) -->
+<!-- Статус сервисов (4 колонки) -->
 <div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mb-4">
     <div class="col">
         <div class="card border-0 shadow-sm h-100">
@@ -89,11 +89,13 @@
         </div>
     </div>
 
-    <!-- ВКЛАДКА OUTLINE (НОВАЯ) -->
+    <!-- ВКЛАДКА OUTLINE -->
     <div class="tab-pane fade" id="tab-outline" role="tabpanel">
         <div class="alert alert-primary shadow-sm border-0 d-flex align-items-center gap-2 mx-3 mt-3" style="border-radius: 10px;">
             <span class="material-symbols-outlined fs-4">privacy_tip</span>
             <small>В целях приватности Outline не ведет логи IP-адресов. Здесь отображается только статистика потребления трафика (Prometheus).</small>
+        </div>
+        
         <div class="card border-0 shadow-sm mt-3">
             <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center">
                 <span class="fw-bold">Статистика ключей Outline</span>
@@ -102,7 +104,6 @@
                     Сбросить статистику
                 </button>
             </div>
-            <!-- ... остальной код таблицы ... -->
             <div class="card-body p-0">
                 <div class="table-responsive">
                     <table class="table align-middle mb-0 text-nowrap">
@@ -202,6 +203,7 @@
 
 {% block scripts %}
 <script>
+    // Сохранение активной вкладки
     document.addEventListener("DOMContentLoaded", function() {
         var tabs = document.querySelectorAll('button[data-bs-toggle="tab"]');
         tabs.forEach(function(tab) {
@@ -220,11 +222,10 @@
             }
         }
     });
-</script>
 
-<script>
+    // Функция сброса статистики Outline
     async function resetOutlineStats() {
-        if (!confirm("Вы уверены? Это обнулит статистику трафика для всех ключей. Сами ключи НЕ удалятся.")) return;
+        if (!confirm("Вы уверены? Это обнулит статистику трафика для всех ключей (сбросится за счет перезапуска контейнера). Сами ключи НЕ удалятся.")) return;
         
         try {
             const res = await fetch('/api/outline/reset', { method: 'POST' });
@@ -232,13 +233,14 @@
             const data = await res.json();
             
             if (data.success) {
-                // Ждем пару секунд, пока Docker поднимает контейнер, и обновляем страницу
+                // Ждем пару секунд, пока Docker перезапустится, и обновляем страницу
                 setTimeout(() => location.reload(), 2000); 
             } else {
                 alert('Ошибка: ' + data.error);
             }
         } catch (e) {
             console.error(e);
+            alert('Произошла ошибка при отправке запроса.');
         }
     }
 </script>
