@@ -863,52 +863,55 @@ def api_system_logs():
 def vpn_users_page():
     return render_template('vpn_users.html')
 
+def get_known_usernames():
+    """Анализирует логи 3proxy и danted, чтобы связать IP с именами пользователей"""
+    ip_to_user = {}
+    
+    # 1. Смотрим логи 3proxy
+    try:
+        for conn in get_3proxy_connections():
+            # Берем IP без порта (например, из 45.85.117.150:41758 берем 45.85.117.150)
+            ip = conn['client'].split(':')[0]
+            user = conn['user']
+            if user and user != 'Unknown' and user != '-':
+                ip_to_user[ip] = user
+    except: pass
+    
+    # 2. Смотрим логи Danted
+    try:
+        for conn in get_danted_connections():
+            ip = conn['client']
+            user = conn['user']
+            if user and user != '-':
+                ip_to_user[ip] = user
+    except: pass
+    
+    return ip_to_user
+
 # API для получения списка пользователей
 @app.route('/api/vpn_users', methods=['GET'])
 @login_required
 def api_vpn_users():
     active_ips = get_active_vpn_users()
     limits = get_limits()
+    known_users = get_known_usernames() # Вызываем новую функцию
     
-    # Собираем все IP (и те что сейчас активны, и те что оффлайн, но имеют лимит)
     all_ips = set(active_ips.keys()).union(set(limits.keys()))
     
     users = []
     for ip in all_ips:
+        # Проверяем, знаем ли мы имя для этого IP
+        username = known_users.get(ip, "")
+        
         users.append({
             "ip": ip,
+            "username": username, # Передаем имя на фронтенд
             "connections": active_ips.get(ip, 0),
             "limit": limits.get(ip, {}).get('speed', None)
         })
         
-    # Сортируем: сначала активные, затем по кол-ву соединений
     users.sort(key=lambda x: (x['connections'] > 0, x['connections']), reverse=True)
     return jsonify({"success": True, "users": users})
-
-# API для установки/снятия лимита скорости
-@app.route('/api/set_speed_limit', methods=['POST'])
-@login_required
-def api_set_speed_limit():
-    ip = request.json.get('ip')
-    speed = request.json.get('speed') # В Мбит/с. Если None - удаляем лимит
-    
-    limits = get_limits()
-    
-    if speed is None or speed == 0:
-        if ip in limits:
-            del limits[ip]
-    else:
-        # Генерируем уникальный class_id для TC (от 11 до 9999)
-        existing_ids = [v['class_id'] for v in limits.values()]
-        new_id = 11
-        while new_id in existing_ids:
-            new_id += 1
-            
-        limits[ip] = {"class_id": new_id, "speed": int(speed)}
-        
-    save_limits(limits)
-    sync_tc_rules() # Перезапускаем правила Linux
-    return jsonify({"success": True})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=443, debug=True)
