@@ -886,31 +886,6 @@ def api_system_logs():
 def vpn_users_page():
     return render_template('vpn_users.html')
 
-def get_known_usernames():
-    """Анализирует логи 3proxy и danted, чтобы связать IP с именами пользователей"""
-    ip_to_user = {}
-    
-    # 1. Смотрим логи 3proxy
-    try:
-        for conn in get_3proxy_connections():
-            # Берем IP без порта (например, из 45.85.117.150:41758 берем 45.85.117.150)
-            ip = conn['client'].split(':')[0]
-            user = conn['user']
-            if user and user != 'Unknown' and user != '-':
-                ip_to_user[ip] = user
-    except: pass
-    
-    # 2. Смотрим логи Danted
-    try:
-        for conn in get_danted_connections():
-            ip = conn['client']
-            user = conn['user']
-            if user and user != '-':
-                ip_to_user[ip] = user
-    except: pass
-    
-    return ip_to_user
-
 def get_active_vpn_users():
     """Собирает входящие IP клиентов и исходящие IP сайтов"""
     proxy_names = ['xray', '3proxy', 'danted', 'shadowbox']
@@ -948,14 +923,72 @@ def get_active_vpn_users():
 
     return inbound_ips, outbound_ips
 
+def analyze_proxy_logs():
+    """Связывает IP с именами и определяет, кто к каким сайтам обращался"""
+    ip_to_user = {}
+    target_to_user = {}
+    
+    def add_target(target, client_ip, user):
+        target_ip = target.split(':')[0]
+        # Если есть юзернейм - берем его, иначе берем IP клиента
+        display = user if user and user not in ('-', 'Unknown', 'unknown') else client_ip
+        if target_ip not in target_to_user:
+            target_to_user[target_ip] = set()
+        target_to_user[target_ip].add(display)
+
+    # Анализируем 3proxy
+    try:
+        for c in get_3proxy_connections():
+            client_ip = c['client'].split(':')[0]
+            user = c['user']
+            if user and user not in ('Unknown', '-'):
+                ip_to_user[client_ip] = user
+            if c['dest'] != 'ОШИБКА':
+                add_target(c['dest'], client_ip, user)
+    except: pass
+    
+    # Анализируем Danted
+    try:
+        for c in get_danted_connections():
+            client_ip = c['client'].split(':')[0]
+            user = c['user']
+            if user and user != '-':
+                ip_to_user[client_ip] = user
+            if c['dest'] != 'unknown' and not c['dest'].startswith('Local:'):
+                add_target(c['dest'], client_ip, user)
+    except: pass
+
+    # Анализируем Xray
+    try:
+        for c in get_recent_connections():
+            client_ip = c['client'].split(':')[0]
+            add_target(c['dest'], client_ip, None)
+    except: pass
+    
+    # Финальная обработка: если в списках целей остался IP клиента, 
+    # а мы для него уже нашли имя в других логах - заменяем IP на Имя
+    final_target_to_user = {}
+    for target, userset in target_to_user.items():
+        final_set = set()
+        for u in userset:
+            if u in ip_to_user:
+                final_set.add(ip_to_user[u])
+            else:
+                final_set.add(u)
+        final_target_to_user[target] = list(final_set)
+        
+    return ip_to_user, final_target_to_user
+
+
+# API для получения списка пользователей и подключений
 @app.route('/api/vpn_users', methods=['GET'])
 @login_required
 def api_vpn_users():
     inbound, outbound = get_active_vpn_users()
     limits = get_limits()
-    known_users = get_known_usernames()
+    known_users, target_to_user = analyze_proxy_logs() # Вызываем умный анализатор
     
-    # 1. Формируем Входящие подключения (Клиенты)
+    # 1. ВХОДЯЩИЕ (Клиенты)
     inbound_list = []
     all_inbound_ips = set(inbound.keys()).union(set(limits.keys()))
     
@@ -968,15 +1001,24 @@ def api_vpn_users():
         })
     inbound_list.sort(key=lambda x: (x['connections'] > 0, x['connections']), reverse=True)
 
-    # 2. Формируем Исходящие подключения (Сайты) с кэшированным реверс-ДНС
+    # 2. ИСХОДЯЩИЕ (Сайты)
     outbound_list = []
     for ip, count in outbound.items():
-        # Быстрый резолв через нашу кэширующую функцию
         domain = reverse_dns(ip)
+        
+        # Пытаемся понять, кто сделал запрос к этому IP
+        users_list = target_to_user.get(ip, [])
+        # Если прокси записал в лог домен вместо IP, проверяем и домен
+        if not users_list and domain and domain in target_to_user:
+            users_list = target_to_user[domain]
+            
+        users_str = ", ".join(users_list) if users_list else "Неизвестно"
+        
         outbound_list.append({
             "ip": ip,
             "domain": domain if domain else "",
-            "connections": count
+            "connections": count,
+            "users": users_str # Передаем юзеров на фронтенд
         })
     outbound_list.sort(key=lambda x: x['connections'], reverse=True)
 
