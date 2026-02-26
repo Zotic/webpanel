@@ -3,47 +3,46 @@ let currentEditingIp = null;
 
 document.addEventListener("DOMContentLoaded", () => {
     limitModal = new bootstrap.Modal(document.getElementById('limitModal'));
-    fetchUsers();
-    setInterval(fetchUsers, 5000); // Автообновление списка каждые 5 сек
+    fetchConnections();
+    setInterval(fetchConnections, 5000); 
 });
 
-async function fetchUsers() {
+async function fetchConnections() {
     try {
         const res = await fetch('/api/vpn_users');
         if (res.status === 401) { location.reload(); return; }
         const data = await res.json();
         
         if (data.success) {
-            renderUsers(data.users);
+            renderInbound(data.inbound);
+            renderOutbound(data.outbound);
         }
     } catch (e) {
-        console.error("Ошибка загрузки пользователей:", e);
+        console.error("Ошибка загрузки подключений:", e);
     }
 }
 
-function renderUsers(users) {
-    const tbody = document.getElementById('usersTableBody');
+// 1. Отрисовка Клиентов (Входящие)
+function renderInbound(users) {
+    const tbody = document.getElementById('inboundTableBody');
     tbody.innerHTML = '';
 
     if (users.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-5 text-muted">Нет подключенных пользователей</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-5 text-muted">Нет входящих подключений</td></tr>';
         return;
     }
 
     users.forEach(user => {
         const tr = document.createElement('tr');
         
-        // Статус (центрируем с помощью Bootstrap классов)
-        let statusBadge = user.connections_total > 0 
+        let statusBadge = user.connections > 0 
             ? '<span class="badge bg-success w-100">ОНЛАЙН</span>' 
             : '<span class="badge bg-secondary w-100">ОФФЛАЙН</span>';
             
-        // Лимит скорости
         let limitHtml = user.limit 
             ? `<span class="badge bg-warning text-dark fw-bold px-3 py-2" style="font-size: 0.9rem;">${user.limit} Мбит/с</span>` 
             : '<span class="text-muted">Без ограничений</span>';
             
-        // Кнопки
         let actionButtons = '';
         if (user.limit) {
             actionButtons = `
@@ -54,31 +53,15 @@ function renderUsers(users) {
             actionButtons = `<button class="btn btn-sm btn-outline-warning" onclick="openLimitModal('${user.ip}', '')">Ограничить</button>`;
         }
 
-        // Если имя не найдено
         let userNameHtml = user.username 
             ? `<span class="fw-bold text-dark">${user.username}</span>` 
             : `<span class="text-muted small">Без авторизации (или Xray)</span>`;
-
-        // Формируем красивый блок с соединениями (Входящие ↓ / Исходящие ↑)
-        let connectionsHtml = '-';
-        if (user.connections_total > 0) {
-            connectionsHtml = `
-                <div class="d-flex justify-content-center gap-2">
-                    <span class="badge bg-light text-success border" title="Входящие (от клиента к серверу)">
-                        <span class="material-symbols-outlined align-middle" style="font-size: 14px;">arrow_downward</span> ${user.connections_in}
-                    </span>
-                    <span class="badge bg-light text-primary border" title="Исходящие (от сервера в интернет)">
-                        <span class="material-symbols-outlined align-middle" style="font-size: 14px;">arrow_upward</span> ${user.connections_out}
-                    </span>
-                </div>
-            `;
-        }
 
         tr.innerHTML = `
             <td class="text-center align-middle" style="width: 100px;">${statusBadge}</td>
             <td class="fw-bold font-monospace text-primary align-middle">${user.ip}</td>
             <td class="align-middle">${userNameHtml}</td>
-            <td class="text-center align-middle">${connectionsHtml}</td>
+            <td class="text-center align-middle"><span class="badge bg-light text-success border fs-6"><span class="material-symbols-outlined align-middle" style="font-size: 14px;">arrow_downward</span> ${user.connections}</span></td>
             <td class="align-middle">${limitHtml}</td>
             <td class="pe-4 text-end align-middle">${actionButtons}</td>
         `;
@@ -86,6 +69,39 @@ function renderUsers(users) {
     });
 }
 
+// 2. Отрисовка Сайтов (Исходящие)
+function renderOutbound(sites) {
+    const tbody = document.getElementById('outboundTableBody');
+    tbody.innerHTML = '';
+
+    if (sites.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="2" class="text-center py-5 text-muted">Нет исходящих подключений</td></tr>';
+        return;
+    }
+
+    sites.forEach(site => {
+        const tr = document.createElement('tr');
+        
+        let domainHtml = site.domain 
+            ? `<br><small class="text-muted font-monospace" style="font-size: 0.8rem;">→ ${site.domain}</small>` 
+            : '';
+
+        tr.innerHTML = `
+            <td class="ps-4 align-middle">
+                <span class="fw-bold font-monospace text-dark">${site.ip}</span>
+                ${domainHtml}
+            </td>
+            <td class="pe-4 text-center align-middle">
+                <span class="badge bg-light text-primary border fs-6">
+                    <span class="material-symbols-outlined align-middle" style="font-size: 14px;">arrow_upward</span> ${site.connections}
+                </span>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// Функции управления лимитами (остались без изменений)
 function openLimitModal(ip, currentSpeed) {
     currentEditingIp = ip;
     document.getElementById('modalIpText').innerText = ip;
@@ -95,10 +111,7 @@ function openLimitModal(ip, currentSpeed) {
 
 async function applyLimit() {
     const speed = document.getElementById('speedInput').value;
-    if (!speed || speed < 1) {
-        alert("Введите корректную скорость (от 1 Мбит/с)");
-        return;
-    }
+    if (!speed || speed < 1) { alert("Введите скорость от 1 Мбит/с"); return; }
     await sendLimitRequest(currentEditingIp, parseInt(speed));
     limitModal.hide();
 }
@@ -112,17 +125,11 @@ async function removeLimit(ip) {
 async function sendLimitRequest(ip, speed) {
     try {
         const res = await fetch('/api/set_speed_limit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ip: ip, speed: speed })
         });
         if (res.status === 401) { location.reload(); return; }
         const data = await res.json();
-        
-        if (data.success) {
-            fetchUsers(); // Обновляем таблицу
-        }
-    } catch (e) {
-        console.error("Ошибка установки лимита:", e);
-    }
+        if (data.success) fetchConnections();
+    } catch (e) { console.error("Ошибка:", e); }
 }
