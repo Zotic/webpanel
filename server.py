@@ -325,8 +325,8 @@ def sync_tc_rules():
 sync_tc_rules()
 
 def get_active_vpn_users():
-    """Ищет, какие IP подключены к прокси-серверам в данный момент"""
-    proxy_names = ['xray', '3proxy', 'danted']
+    """Ищет IP подключенных пользователей и разделяет их на входящие/исходящие соединения"""
+    proxy_names = ['xray', '3proxy', 'danted', 'shadowbox']
     proxy_pids = set()
     
     # Находим PID процессов наших прокси
@@ -336,13 +336,36 @@ def get_active_vpn_users():
                 proxy_pids.add(proc.info['pid'])
         except: pass
 
-    # Считаем подключения
     active_ips = {}
+    
+    # Чтобы отличить локальный IP сервера от IP клиента
+    # Получаем локальные IP адреса машины
+    local_ips = set()
+    for interface, snics in psutil.net_if_addrs().items():
+        for snic in snics:
+            if snic.family == socket.AF_INET:
+                local_ips.add(snic.address)
+
+    # Проходим по всем TCP соединениям
     for conn in psutil.net_connections(kind='tcp'):
         if conn.status == 'ESTABLISHED' and conn.pid in proxy_pids:
-            if conn.raddr:
-                ip = conn.raddr.ip
-                active_ips[ip] = active_ips.get(ip, 0) + 1
+            if conn.laddr and conn.raddr:
+                remote_ip = conn.raddr.ip
+                
+                # Игнорируем внутренние системные соединения сервера (напр. 127.0.0.1)
+                if remote_ip in local_ips or remote_ip.startswith('127.'):
+                    continue
+
+                if remote_ip not in active_ips:
+                    active_ips[remote_ip] = {"inbound": 0, "outbound": 0}
+                
+                # Если удаленный порт высокий (динамический порт клиента), 
+                # а локальный порт стандартный для прокси (443, 80, 2408 и тд) -> это ВХОДЯЩЕЕ от клиента
+                # В противном случае -> это ИСХОДЯЩЕЕ от прокси в интернет
+                if conn.raddr.port > 10240 and conn.laddr.port < 10240:
+                    active_ips[remote_ip]["inbound"] += 1
+                else:
+                    active_ips[remote_ip]["outbound"] += 1
 
     return active_ips
 
