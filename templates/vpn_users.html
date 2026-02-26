@@ -2,39 +2,86 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
-    <h2 class="fw-bold text-secondary mb-0">Пользователи VPN (IP)</h2>
+    <h2 class="fw-bold text-secondary mb-0">Сетевые подключения</h2>
     <div class="d-flex gap-2">
-        <button class="btn btn-primary shadow-sm d-flex align-items-center gap-1" onclick="fetchUsers()" style="border-radius: 8px;">
+        <button class="btn btn-primary shadow-sm d-flex align-items-center gap-1" onclick="fetchConnections()" style="border-radius: 8px;">
             <span class="material-symbols-outlined fs-6">refresh</span> Обновить список
         </button>
     </div>
 </div>
 
-<div class="alert alert-info shadow-sm" style="border-radius: 12px;">
-    <span class="material-symbols-outlined fs-5 align-middle me-1">info</span>
-    Здесь отображаются все IP-адреса, подключенные к вашим прокси-серверам прямо сейчас. Вы можете жестко ограничить входящую скорость для любого пользователя. Ограничение работает на уровне ядра ОС.
-</div>
+<!-- Вкладки (Tabs) -->
+<ul class="nav nav-pills mb-3 bg-white p-2 shadow-sm" id="connTabs" role="tablist" style="border-radius: 12px; display: inline-flex;">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active fw-bold px-4 d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-inbound" type="button" role="tab">
+            <span class="material-symbols-outlined text-success">download</span> Входящие (Клиенты)
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold px-4 d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-outbound" type="button" role="tab">
+            <span class="material-symbols-outlined text-primary">upload</span> Исходящие (Сайты)
+        </button>
+    </li>
+</ul>
 
-<div class="card border-0 shadow-sm mb-4">
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table align-middle mb-0 text-nowrap">
-                <thead class="table-light">
-                    <tr>
-                        <th class="text-center" style="width: 100px;">Статус</th> <!-- Выровняли по центру -->
-                        <th>IP Адрес</th>
-                        <th>Имя пользователя</th>
-                        <th class="text-center">Соединения (Вх / Исх)</th> <!-- Выровняли по центру -->
-                        <th>Ограничение скорости</th>
-                        <th class="pe-4 text-end">Действие</th>
-                    </tr>
-                </thead>
-                <tbody id="usersTableBody">
-                    <tr><td colspan="5" class="text-center py-4 text-muted">Загрузка данных...</td></tr>
-                </tbody>
-            </table>
+<div class="tab-content">
+    
+    <!-- ВКЛАДКА: ВХОДЯЩИЕ -->
+    <div class="tab-pane fade show active" id="tab-inbound" role="tabpanel">
+        <div class="alert alert-success shadow-sm d-flex align-items-center gap-2" style="border-radius: 12px;">
+            <span class="material-symbols-outlined fs-5">info</span>
+            Здесь отображаются IP-адреса пользователей, подключенных к вашему серверу. Вы можете ограничить им скорость.
+        </div>
+
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0 text-nowrap">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="text-center" style="width: 100px;">Статус</th>
+                                <th>IP Адрес</th>
+                                <th>Имя пользователя</th>
+                                <th class="text-center">Соединения</th>
+                                <th>Ограничение скорости</th>
+                                <th class="pe-4 text-end">Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inboundTableBody">
+                            <tr><td colspan="6" class="text-center py-4 text-muted">Загрузка данных...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
+
+    <!-- ВКЛАДКА: ИСХОДЯЩИЕ -->
+    <div class="tab-pane fade" id="tab-outbound" role="tabpanel">
+        <div class="alert alert-primary shadow-sm d-flex align-items-center gap-2" style="border-radius: 12px;">
+            <span class="material-symbols-outlined fs-5">info</span>
+            Куда сейчас обращается ваш сервер от лица пользователей. Домены определяются автоматически (Reverse DNS).
+        </div>
+
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0 text-nowrap">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Целевой IP / Домен</th>
+                                <th class="pe-4 text-center">Кол-во соединений</th>
+                            </tr>
+                        </thead>
+                        <tbody id="outboundTableBody">
+                            <tr><td colspan="2" class="text-center py-4 text-muted">Загрузка данных...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <!-- Модальное окно установки лимита -->
