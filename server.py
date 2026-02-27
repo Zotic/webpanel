@@ -893,15 +893,68 @@ def api_system_logs():
 def vpn_users_page():
     return render_template('vpn_users.html')
 
+def get_outline_connections():
+    """Специальная функция для извлечения IP из изолированного контейнера Outline"""
+    inbound = {}
+    outbound = {}
+    container_name = "shadowbox"
+    try:
+        # Ищем контейнер
+        res = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'], capture_output=True, text=True)
+        if 'shadowbox' not in res.stdout:
+            res2 = subprocess.run(['docker', 'ps', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
+            if res2.stdout.strip():
+                container_name = res2.stdout.strip().split('\n')[0]
+        
+        # Запускаем netstat прямо внутри контейнера
+        net_res = subprocess.run(['docker', 'exec', container_name, 'netstat', '-tun'], capture_output=True, text=True)
+        for line in net_res.stdout.split('\n'):
+            line = line.strip()
+            # Нас интересуют установленные TCP соединения и любой UDP трафик
+            if 'ESTABLISHED' in line or line.startswith('udp'):
+                parts = line.split()
+                if len(parts) >= 5:
+                    local_addr = parts[3]
+                    foreign_addr = parts[4]
+                    
+                    if ':' not in local_addr or ':' not in foreign_addr:
+                        continue
+                        
+                    f_ip, f_port = foreign_addr.rsplit(':', 1)
+                    l_ip, l_port = local_addr.rsplit(':', 1)
+                    
+                    # Очищаем IP от формата IPv6
+                    f_ip = f_ip.replace('::ffff:', '')
+                    
+                    if f_ip in ('127.0.0.1', '::1', '0.0.0.0', '*'):
+                        continue
+                        
+                    try:
+                        f_port_num = int(f_port)
+                        l_port_num = int(l_port)
+                        
+                        # Если порт назначения стандартный (80, 443 и тд), а локальный случайный - это запрос в интернет (Исходящее)
+                        # Иначе это клиент подключился к порту ключа Outline (Входящее)
+                        if f_port_num < 10240 and l_port_num > 10240:
+                            outbound[f_ip] = outbound.get(f_ip, 0) + 1
+                        else:
+                            inbound[f_ip] = inbound.get(f_ip, 0) + 1
+                    except:
+                        pass
+    except:
+        pass
+        
+    return inbound, outbound
+
+
 def get_active_vpn_users():
-    """Собирает входящие IP клиентов и исходящие IP сайтов (Поддерживает TCP и UDP)"""
-    proxy_names = ['xray', '3proxy', 'danted', 'shadowbox']
+    """Собирает входящие и исходящие IP для Xray, 3proxy, Danted и Outline"""
+    # 1. Собираем данные с обычных прокси на сервере (Xray, 3proxy, Danted)
+    proxy_names = ['xray', '3proxy', 'danted']
     proxy_pids = set()
     
-    # 1. Находим PID всех прокси-процессов
     for proc in psutil.process_iter(['pid', 'name']):
         try:
-            # Используем in, так как процесс может называться /usr/bin/3proxy
             for p_name in proxy_names:
                 if p_name in proc.info['name'].lower():
                     proxy_pids.add(proc.info['pid'])
@@ -916,28 +969,32 @@ def get_active_vpn_users():
             if snic.family == socket.AF_INET:
                 local_ips.add(snic.address)
 
-    # 2. Узнаем, на каких портах НАШИ прокси ожидают клиентов (LISTEN)
     listening_ports = set()
-    for conn in psutil.net_connections(kind='inet'): # tcp и udp
+    for conn in psutil.net_connections(kind='inet'):
         if conn.pid in proxy_pids:
             if conn.status == 'LISTEN' or conn.type == socket.SOCK_DGRAM:
                 listening_ports.add(conn.laddr.port)
 
-    # 3. Анализируем все активные соединения
     for conn in psutil.net_connections(kind='inet'):
         if conn.pid in proxy_pids and conn.raddr:
             remote_ip = conn.raddr.ip
             
-            # Игнорируем внутренние системные адреса
             if remote_ip in local_ips or remote_ip.startswith('127.') or remote_ip.startswith('::1'):
                 continue
                 
-            # Если локальный порт соединения совпадает с портом, который прокси "слушает" - это Входящее (Клиент)
             if conn.laddr.port in listening_ports:
                 inbound_ips[remote_ip] = inbound_ips.get(remote_ip, 0) + 1
-            # Иначе прокси сам инициировал запрос - это Исходящее (Интернет)
             else:
                 outbound_ips[remote_ip] = outbound_ips.get(remote_ip, 0) + 1
+
+    # 2. Добавляем данные из изолированного контейнера Outline
+    out_inbound, out_outbound = get_outline_connections()
+    
+    for ip, count in out_inbound.items():
+        inbound_ips[ip] = inbound_ips.get(ip, 0) + count
+        
+    for ip, count in out_outbound.items():
+        outbound_ips[ip] = outbound_ips.get(ip, 0) + count
 
     return inbound_ips, outbound_ips
 
