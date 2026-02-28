@@ -247,7 +247,38 @@ def get_outline_metrics():
     data.sort(key=lambda x: x['raw_bytes'], reverse=True)
     return data
 
+# ========================================
+# ОПТИМИЗИРОВАННЫЙ БЛОК VPN ПОДКЛЮЧЕНИЙ
+# ========================================
+
+# Кэш для тяжелых запросов
+_proxy_pids_cache = set()
+_proxy_pids_time = 0
+_outline_cache = ({}, {})
+_outline_time = 0
+
+def get_proxy_pids():
+    """Кэширует список PID процессов на 15 секунд (очень сильно снижает нагрузку CPU)"""
+    global _proxy_pids_cache, _proxy_pids_time
+    if time.time() - _proxy_pids_time > 15:
+        pids = set()
+        proxy_names = ['xray', '3proxy', 'danted', 'shadowbox', 'docker-proxy']
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                name = proc.info['name'].lower()
+                if any(p in name for p in proxy_names):
+                    pids.add(proc.info['pid'])
+            except: pass
+        _proxy_pids_cache = pids
+        _proxy_pids_time = time.time()
+    return _proxy_pids_cache
+
 def get_outline_connections():
+    """Кэширует запрос к Docker на 3 секунды, чтобы не спамить команду exec"""
+    global _outline_cache, _outline_time
+    if time.time() - _outline_time < 3:
+        return _outline_cache
+
     inbound, outbound = {}, {}
     container_name = "shadowbox"
     try:
@@ -255,6 +286,7 @@ def get_outline_connections():
         if 'shadowbox' not in res.stdout:
             res2 = subprocess.run(['docker', 'ps', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
             if res2.stdout.strip(): container_name = res2.stdout.strip().split('\n')[0]
+            
         net_res = subprocess.run(['docker', 'exec', container_name, 'netstat', '-tun'], capture_output=True, text=True)
         for line in net_res.stdout.split('\n'):
             line = line.strip()
@@ -273,19 +305,15 @@ def get_outline_connections():
                         else: inbound[f_ip] = inbound.get(f_ip, 0) + 1
                     except: pass
     except: pass
-    return inbound, outbound
+    
+    _outline_cache = (inbound, outbound)
+    _outline_time = time.time()
+    return _outline_cache
 
 def get_active_vpn_users():
-    proxy_names = ['xray', '3proxy', 'danted', 'shadowbox', 'docker-proxy']
-    proxy_pids = set()
-    for proc in psutil.process_iter(['pid', 'name']):
-        try:
-            for p_name in proxy_names:
-                if p_name in proc.info['name'].lower():
-                    proxy_pids.add(proc.info['pid'])
-        except: pass
-
+    proxy_pids = get_proxy_pids() # Используем кэшированные PID-ы
     inbound_ips, outbound_ips = {}, {}
+    
     local_ips = set()
     for interface, snics in psutil.net_if_addrs().items():
         for snic in snics:
@@ -315,16 +343,19 @@ def get_active_vpn_users():
 
     return inbound_ips, outbound_ips
 
-@lru_cache(maxsize=1000)
+@lru_cache(maxsize=2000)
 def reverse_dns(ip):
+    """Сверхбыстрый DNS резолв"""
     try:
-        if ip.startswith('192.168.') or ip.startswith('10.') or ip.startswith('172.'): return None
-        socket.setdefaulttimeout(0.2)
+        if ip.startswith(('192.168.', '10.', '172.', '127.')): return None
+        # Ставим таймаут 0.05 сек. Если домен не отдается моментально, значит его нет (экономим время)
+        socket.setdefaulttimeout(0.05) 
         hostname = socket.gethostbyaddr(ip)[0]
         return hostname if hostname != ip else None
     except: return None
 
-def get_recent_connections():
+def get_recent_connections(skip_dns=False):
+    """Парсер логов Xray с возможностью отключения DNS для скорости"""
     try:
         result = subprocess.run(['tail', '-100', '/var/log/xray/access.log'], capture_output=True, text=True)
         connections = []
@@ -336,7 +367,13 @@ def get_recent_connections():
                 key = f"{dest_ip}:{port}:{route}"
                 if key in seen: continue
                 seen.add(key)
-                domain = dest_ip if not dest_ip.replace('.', '').isdigit() else reverse_dns(dest_ip)
+                
+                # Если просят пропустить DNS (например для анализатора) - пропускаем
+                if skip_dns or dest_ip.replace('.', '').isdigit() == False:
+                    domain = dest_ip
+                else:
+                    domain = reverse_dns(dest_ip)
+                    
                 connections.append({
                     'time': time, 'client': client, 'dest': f"{dest_ip}:{port}",
                     'domain': domain, 'route': route, 'route_class': 'direct' if route == 'direct' else 'vless'
@@ -419,6 +456,7 @@ def analyze_proxy_logs():
         if user and user not in ('-', 'Unknown', 'unknown'):
             if ip not in ip_to_users: ip_to_users[ip] = set()
             ip_to_users[ip].add(user)
+            
     def add_target(target, client_ip, user):
         target_ip = target.split(':')[0]
         if target_ip not in target_to_users: target_to_users[target_ip] = set()
@@ -438,7 +476,8 @@ def analyze_proxy_logs():
             if c['dest'] != 'unknown' and not str(c['dest']).startswith('Local:'): add_target(c['dest'], client_ip, user)
     except: pass
     try:
-        for c in get_recent_connections():
+        # ВАЖНО: skip_dns=True. Нам не нужно искать домены при анализе юзеров!
+        for c in get_recent_connections(skip_dns=True):
             add_target(c['dest'], c['client'].split(':')[0], None)
     except: pass
     
@@ -452,6 +491,9 @@ def analyze_proxy_logs():
         final_target_to_user[target] = list(final_set)
     final_ip_to_users = {ip: ", ".join(users) for ip, users in ip_to_users.items()}
     return final_ip_to_users, final_target_to_user
+
+
+
 
 
 # ========================================
@@ -683,7 +725,7 @@ def api_vpn_users():
 
     outbound_list = []
     for ip, count in outbound.items():
-        domain = reverse_dns(ip)
+        domain = reverse_dns(ip) # Быстрый DNS резолв
         users_list = target_to_user.get(ip, [])
         if not users_list and domain and domain in target_to_user: users_list = target_to_user[domain]
         outbound_list.append({"ip": ip, "domain": domain if domain else "", "connections": count, "users": ", ".join(users_list) if users_list else "Неизвестно"})
