@@ -355,12 +355,16 @@ def reverse_dns(ip):
     except: return None
 
 def get_recent_connections(skip_dns=False):
-    """Парсер логов Xray с возможностью отключения DNS для скорости"""
+    """Парсер логов Xray с сортировкой: СНАЧАЛА НОВЫЕ"""
     try:
         result = subprocess.run(['tail', '-100', '/var/log/xray/access.log'], capture_output=True, text=True)
         connections = []
         seen = set()
-        for line in result.stdout.split('\n'):
+        
+        # ДОБАВЛЕНО reversed(...) - теперь читаем файл с конца (от новых к старым)
+        for line in reversed(result.stdout.split('\n')):
+            if not line.strip(): continue
+            
             match = re.search(r'(\d{2}:\d{2}:\d{2}).*?(?:from\s+)?([a-fA-F0-9\.:]+):\d+\s+accepted\s+[a-zA-Z0-9]+:([a-zA-Z0-9\.\-]+):(\d+)\s+\[([^\]]+)\]', line)
             if match:
                 time, client, dest_ip, port, route = match.groups()
@@ -368,7 +372,6 @@ def get_recent_connections(skip_dns=False):
                 if key in seen: continue
                 seen.add(key)
                 
-                # Если просят пропустить DNS (например для анализатора) - пропускаем
                 if skip_dns or dest_ip.replace('.', '').isdigit() == False:
                     domain = dest_ip
                 else:
