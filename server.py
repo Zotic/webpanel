@@ -42,6 +42,7 @@ def save_custom_names(names):
 # Глобальные переменные для расчета скорости сети
 last_net_io = None
 last_net_time = 0
+proc_cache = {} # Кэш для правильного расчета CPU процессов
 
 # Регулярное выражение для удаления ANSI цветовых кодов из логов
 ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
@@ -721,7 +722,8 @@ def bot_action():
 @app.route('/api/system_stats', methods=['GET'])
 @login_required
 def api_system_stats():
-    global last_net_io, last_net_time
+    global last_net_io, last_net_time, proc_cache
+    
     cpu_percent = psutil.cpu_percent(interval=0.1)
     cpu_cores = psutil.cpu_count(logical=True)
     try: load1, load5, load15 = os.getloadavg()
@@ -729,12 +731,14 @@ def api_system_stats():
     
     mem, swap, disk = psutil.virtual_memory(), psutil.swap_memory(), psutil.disk_usage('/')
     net_io, current_time = psutil.net_io_counters(), time.time()
+    
     upload_speed, download_speed = 0, 0
     if last_net_io and last_net_time > 0:
         time_diff = current_time - last_net_time
         if time_diff > 0:
-            upload_speed = (net_io.bytes_sent - last_net_io.bytes_sent) / time_diff
-            download_speed = (net_io.bytes_recv - last_net_io.bytes_recv) / time_diff
+            # Умножаем байты на 8, чтобы получить БИТЫ (для вывода в Mbit/s)
+            upload_speed = ((net_io.bytes_sent - last_net_io.bytes_sent) * 8) / time_diff
+            download_speed = ((net_io.bytes_recv - last_net_io.bytes_recv) * 8) / time_diff
     last_net_io, last_net_time = net_io, current_time
     
     stats = {
@@ -744,12 +748,50 @@ def api_system_stats():
         "disk": {"percent": disk.percent, "used": disk.used, "total": disk.total},
         "network": {"upload": upload_speed, "download": download_speed}
     }
+    
+    # Собираем процессы
     processes = []
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'cpu_percent', 'memory_percent']):
+    current_pids = set()
+    
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'memory_percent', 'memory_info']):
         try:
+            pid = proc.info['pid']
+            current_pids.add(pid)
+            
+            # ВАЖНО: Вызов cpu_percent() без interval вернет разницу с предыдущего вызова для ЭТОГО объекта.
+            # Поэтому мы храним объекты процессов в словаре proc_cache.
+            if pid not in proc_cache:
+                proc_cache[pid] = proc
+                proc.cpu_percent() # Инициализируем счетчик (вернет 0.0)
+                cpu_usage = 0.0
+            else:
+                # Получаем реальную нагрузку с момента прошлого запроса (3 секунды назад)
+                cpu_usage = proc_cache[pid].cpu_percent()
+                # Делим на количество ядер, чтобы получить нагрузку от 0 до 100% (как в top)
+                if cpu_cores > 0:
+                    cpu_usage = cpu_usage / cpu_cores
+
             cmd = proc.info.get('cmdline')
-            processes.append({"pid": proc.info['pid'], "name": proc.info['name'], "path": " ".join(cmd) if cmd else proc.info.get('name', ''), "cpu": round(proc.info['cpu_percent'] or 0.0, 1), "ram": round(proc.info['memory_percent'] or 0.0, 1)})
+            path = " ".join(cmd) if cmd else proc.info.get('name', '')
+            
+            # RAM в мегабайтах (Resident Set Size)
+            ram_mb = 0
+            if proc.info.get('memory_info'):
+                ram_mb = proc.info['memory_info'].rss / (1024 * 1024)
+
+            processes.append({
+                "pid": pid, 
+                "name": proc.info['name'], 
+                "path": path, 
+                "cpu": round(cpu_usage, 1), 
+                "ram_percent": round(proc.info['memory_percent'] or 0.0, 1),
+                "ram_mb": round(ram_mb, 1)
+            })
         except: pass
+        
+    # Очищаем кэш от "умерших" процессов
+    proc_cache = {pid: proc for pid, proc in proc_cache.items() if pid in current_pids}
+    
     processes.sort(key=lambda x: x['cpu'], reverse=True)
     return jsonify({"success": True, "stats": stats, "processes": processes[:150]})
 

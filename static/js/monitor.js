@@ -1,20 +1,37 @@
-let currentSort = 'cpu'; // По умолчанию сортируем по CPU
-let sortDesc = true;     // По убыванию
-let processData = [];    // Хранилище процессов для локальной сортировки и поиска
+let currentSort = 'cpu'; 
+let sortDesc = true;     
+let processData = [];    
+let isPaused = false;
 
-// Конвертер байтов в гигабайты
+function togglePause() {
+    isPaused = !isPaused;
+    document.getElementById('pauseIcon').innerText = isPaused ? 'play_arrow' : 'pause';
+    document.getElementById('pauseBtn').className = isPaused 
+        ? 'btn btn-secondary shadow-sm d-flex align-items-center gap-1' 
+        : 'btn btn-primary shadow-sm d-flex align-items-center gap-1';
+    document.getElementById('pauseText').innerText = isPaused ? 'Пауза' : 'Автообновление';
+    if (!isPaused) fetchStats(); 
+}
+
 function bytesToGB(bytes) {
     return (bytes / (1024 ** 3)).toFixed(2);
 }
 
-// Изменение цвета прогресс-бара в зависимости от нагрузки
+// Новая функция для БИТОВ в секунду
+function formatNetworkSpeed(bitsPerSec) {
+    if (bitsPerSec === 0) return '0 bit/s';
+    const k = 1000; // Сетевая скорость считается в десятичных приставках (1000)
+    const sizes = ['bit/s', 'Kbit/s', 'Mbit/s', 'Gbit/s'];
+    const i = Math.floor(Math.log(bitsPerSec) / Math.log(k));
+    return parseFloat((bitsPerSec / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
 function getBarColorClass(percent) {
     if (percent < 60) return 'bg-success';
     if (percent < 85) return 'bg-warning';
     return 'bg-danger';
 }
 
-// Запрос данных с сервера
 async function fetchStats() {
     try {
         const res = await fetch('/api/system_stats');
@@ -31,61 +48,44 @@ async function fetchStats() {
     }
 }
 
-// Функция для красивого вывода скорости сети
-function formatSpeed(bytesPerSec) {
-    if (bytesPerSec === 0) return '0 B/s';
-    const k = 1024;
-    const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
-    const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
-    return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-// Обновление верхних карточек (CPU, RAM, Swap, Disk)
 function updateDashboard(stats) {
-    // CPU
     document.getElementById('cpuText').innerText = stats.cpu.percent + '%';
     document.getElementById('cpuBar').style.width = stats.cpu.percent + '%';
     document.getElementById('cpuBar').className = 'progress-bar ' + getBarColorClass(stats.cpu.percent);
-    
-    // Выводим ядра и Load Average
     document.getElementById('cpuDetails').innerText = `Ядра: ${stats.cpu.cores} | Load: ${stats.cpu.load_avg}`;
 
-    // RAM
     document.getElementById('ramText').innerText = stats.ram.percent + '%';
     document.getElementById('ramDetails').innerText = `${bytesToGB(stats.ram.used)} GB / ${bytesToGB(stats.ram.total)} GB`;
     document.getElementById('ramBar').style.width = stats.ram.percent + '%';
     document.getElementById('ramBar').className = 'progress-bar ' + getBarColorClass(stats.ram.percent);
 
-    // SWAP
     document.getElementById('swapText').innerText = stats.swap.percent + '%';
     document.getElementById('swapDetails').innerText = `${bytesToGB(stats.swap.used)} GB / ${bytesToGB(stats.swap.total)} GB`;
     document.getElementById('swapBar').style.width = stats.swap.percent + '%';
     document.getElementById('swapBar').className = 'progress-bar ' + getBarColorClass(stats.swap.percent);
 
-    // DISK
     document.getElementById('diskText').innerText = stats.disk.percent + '%';
     document.getElementById('diskDetails').innerText = `${bytesToGB(stats.disk.used)} GB / ${bytesToGB(stats.disk.total)} GB`;
     document.getElementById('diskBar').style.width = stats.disk.percent + '%';
     document.getElementById('diskBar').className = 'progress-bar ' + getBarColorClass(stats.disk.percent);
 
-    // СЕТЬ
-    document.getElementById('netDownload').innerText = formatSpeed(stats.network.download);
-    document.getElementById('netUpload').innerText = formatSpeed(stats.network.upload);
+    // Сеть (Используем новый конвертер бит)
+    document.getElementById('netDownload').innerText = formatNetworkSpeed(stats.network.download);
+    document.getElementById('netUpload').innerText = formatNetworkSpeed(stats.network.upload);
 }
 
-// Обработчик клика по заголовку таблицы
 function changeSort(column) {
     if (currentSort === column) {
-        sortDesc = !sortDesc; // Меняем направление сортировки
+        sortDesc = !sortDesc; 
     } else {
         currentSort = column;
-        sortDesc = true;      // По умолчанию по убыванию
+        sortDesc = true;     
     }
     
-    // Обновляем стрелочки в заголовках
+    document.getElementById('sort-pid').innerText = '';
     document.getElementById('sort-name').innerText = '';
     document.getElementById('sort-cpu').innerText = '';
-    document.getElementById('sort-ram').innerText = '';
+    document.getElementById('sort-ram_mb').innerText = '';
     
     let arrow = sortDesc ? '▼' : '▲';
     document.getElementById('sort-' + column).innerText = arrow;
@@ -93,18 +93,16 @@ function changeSort(column) {
     renderProcessTable();
 }
 
-// Отрисовка таблицы процессов (с учетом сортировки и поиска)
 function renderProcessTable() {
     const tbody = document.getElementById('processList');
     const searchQuery = document.getElementById('procSearch').value.toLowerCase();
     
-    // 1. Фильтрация
     let filteredData = processData.filter(p => 
         p.name.toLowerCase().includes(searchQuery) || 
-        p.path.toLowerCase().includes(searchQuery)
+        p.path.toLowerCase().includes(searchQuery) ||
+        p.pid.toString().includes(searchQuery)
     );
     
-    // 2. Сортировка
     filteredData.sort((a, b) => {
         let valA = a[currentSort];
         let valB = b[currentSort];
@@ -116,7 +114,6 @@ function renderProcessTable() {
         }
     });
     
-    // 3. Рендер
     tbody.innerHTML = '';
     if (filteredData.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">Процессы не найдены</td></tr>';
@@ -126,36 +123,24 @@ function renderProcessTable() {
     filteredData.forEach(p => {
         const tr = document.createElement('tr');
         
-        // Подсвечиваем тяжелые процессы (красный, если CPU > 50% или RAM > 30%)
-        let rowClass = (p.cpu > 50 || p.ram > 30) ? 'table-warning' : '';
+        // Предупреждающий цвет, если процесс ест слишком много
+        let rowClass = (p.cpu > 50 || p.ram_percent > 30) ? 'table-warning' : '';
         tr.className = rowClass;
         
+        // Обрезаем длинные пути с помощью классов text-truncate и d-inline-block
         tr.innerHTML = `
             <td class="ps-4 text-muted">${p.pid}</td>
-            <td class="fw-bold">${p.name}</td>
-            <td style="max-width: 300px;" class="text-truncate text-muted" title="${p.path}">${p.path}</td>
+            <td class="fw-bold text-truncate">${p.name}</td>
+            <td class="text-muted text-truncate" title="${p.path}">${p.path}</td>
             <td class="text-center"><span class="badge ${p.cpu > 10 ? 'bg-danger' : 'bg-secondary'}">${p.cpu}%</span></td>
-            <td class="text-center pe-4"><span class="badge ${p.ram > 10 ? 'bg-warning text-dark' : 'bg-secondary'}">${p.ram}%</span></td>
+            <td class="text-center pe-4"><span class="badge ${p.ram_mb > 500 ? 'bg-warning text-dark' : 'bg-light text-dark border'}">${p.ram_mb} MB (${p.ram_percent}%)</span></td>
         `;
         tbody.appendChild(tr);
     });
 }
 
-// Обработчик строки поиска
 document.getElementById('procSearch').addEventListener('input', renderProcessTable);
 
-// Запуск цикла обновления
-let isPaused = false;
-
-function togglePause() {
-    isPaused = !isPaused;
-    document.getElementById('pauseIcon').innerText = isPaused ? 'play_arrow' : 'pause';
-    document.getElementById('pauseBtn').className = isPaused ? 'btn btn-secondary shadow-sm d-flex align-items-center gap-1' : 'btn btn-primary shadow-sm d-flex align-items-center gap-1';
-    document.getElementById('pauseText').innerText = isPaused ? 'Пауза' : 'Автообновление';
-    if (!isPaused) fetchStats(); // Сразу обновляем при снятии с паузы
-}
-
-// Запуск цикла обновления с учетом паузы
 document.addEventListener('DOMContentLoaded', () => {
     fetchStats();
     setInterval(() => {

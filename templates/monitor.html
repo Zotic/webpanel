@@ -80,7 +80,7 @@
         </div>
     </div>
 
-    <!-- СЕТЬ (НОВАЯ КАРТОЧКА) -->
+<!-- СЕТЬ -->
     <div class="col">
         <div class="card h-100 border-0 shadow-sm">
             <div class="card-body d-flex flex-column justify-content-center">
@@ -90,11 +90,12 @@
                 </div>
                 <div class="d-flex align-items-center text-success mb-2">
                     <span class="material-symbols-outlined fs-5 me-1">arrow_downward</span>
-                    <span class="fw-bold fs-5" id="netDownload">0 B/s</span>
+                    <!-- Изменили B/s на bit/s как стартовое значение -->
+                    <span class="fw-bold fs-5" id="netDownload">0 bit/s</span>
                 </div>
                 <div class="d-flex align-items-center text-primary">
                     <span class="material-symbols-outlined fs-5 me-1">arrow_upward</span>
-                    <span class="fw-bold fs-5" id="netUpload">0 B/s</span>
+                    <span class="fw-bold fs-5" id="netUpload">0 bit/s</span>
                 </div>
             </div>
         </div>
@@ -109,15 +110,16 @@
     </div>
     <div class="card-body p-0">
         <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-            <table class="table table-hover align-middle mb-0" style="font-size: 0.9rem;">
+            <!-- Фиксируем таблицу (table-layout: fixed), чтобы столбцы не прыгали -->
+            <table class="table table-hover align-middle mb-0" style="font-size: 0.9rem; table-layout: fixed;">
                 <thead class="table-light position-sticky top-0" style="z-index: 1;">
                     <tr>
-                        <th class="ps-4">PID</th>
-                        <!-- Кликабельные заголовки для сортировки -->
-                        <th class="cursor-pointer" onclick="changeSort('name')">Имя <span id="sort-name" class="text-muted"></span></th>
-                        <th>Путь / Команда</th>
-                        <th class="cursor-pointer text-center" onclick="changeSort('cpu')">CPU % <span id="sort-cpu" class="text-muted">▼</span></th>
-                        <th class="cursor-pointer text-center pe-4" onclick="changeSort('ram')">RAM % <span id="sort-ram" class="text-muted"></span></th>
+                        <!-- Задаем жесткую ширину каждому столбцу -->
+                        <th class="ps-4 cursor-pointer" onclick="changeSort('pid')" style="width: 10%;">PID <span id="sort-pid" class="text-muted"></span></th>
+                        <th class="cursor-pointer" onclick="changeSort('name')" style="width: 20%;">Имя <span id="sort-name" class="text-muted"></span></th>
+                        <th style="width: 40%;">Путь / Команда</th>
+                        <th class="cursor-pointer text-center" onclick="changeSort('cpu')" style="width: 10%;">CPU % <span id="sort-cpu" class="text-muted">▼</span></th>
+                        <th class="cursor-pointer text-center pe-4" onclick="changeSort('ram_mb')" style="width: 20%;">RAM <span id="sort-ram_mb" class="text-muted"></span></th>
                     </tr>
                 </thead>
                 <tbody id="processList">
