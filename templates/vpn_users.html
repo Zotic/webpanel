@@ -107,6 +107,28 @@
         </div>
     </div>
 </div>
+
+<!-- Модальное окно информации об IP -->
+<div class="modal fade" id="ipInfoModal" tabindex="-1">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content" style="border-radius: 12px; border: none;">
+            <div class="modal-header border-bottom-0 pb-0">
+                <h5 class="modal-title fw-bold">Информация об IP</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center pt-2">
+                <h4 class="font-monospace text-primary mb-3" id="infoIpText">8.8.8.8</h4>
+                <div id="ipInfoLoader" class="spinner-border text-primary" role="status"><span class="visually-hidden">Загрузка...</span></div>
+                <div id="ipInfoContent" style="display: none; text-align: left; background: #f8f9fa; padding: 15px; border-radius: 8px;">
+                    <p class="mb-1"><strong>Страна:</strong> <span id="infoCountry"></span></p>
+                    <p class="mb-1"><strong>Город:</strong> <span id="infoCity"></span></p>
+                    <p class="mb-1"><strong>Провайдер:</strong> <span id="infoIsp"></span></p>
+                    <p class="mb-0"><strong>Организация:</strong> <span id="infoOrg"></span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

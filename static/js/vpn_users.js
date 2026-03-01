@@ -63,7 +63,10 @@ function renderInbound(users) {
 
         tr.innerHTML = `
             <td class="text-center align-middle" style="width: 100px;">${statusBadge}</td>
-            <td class="fw-bold font-monospace text-primary align-middle">${user.ip}</td>
+            <td class="fw-bold font-monospace text-primary align-middle">
+    ${user.ip}
+    <span class="material-symbols-outlined text-info align-middle ms-1" style="font-size: 18px; cursor: help;" onclick="showIpInfo('${user.ip}')" title="Узнать город и провайдера">help</span>
+</td>
             <td class="align-middle">${userNameHtml}</td>
             <td class="text-center align-middle">
                 <span class="badge bg-light text-success border fs-6" title="Входящие соединения">
@@ -156,5 +159,40 @@ async function sendLimitRequest(ip, speed) {
         }
     } catch (e) {
         console.error("Ошибка установки лимита:", e);
+    }
+}
+
+let ipInfoModal = null;
+document.addEventListener("DOMContentLoaded", () => {
+    ipInfoModal = new bootstrap.Modal(document.getElementById('ipInfoModal'));
+});
+
+// Запрос инфы об IP
+async function showIpInfo(ip) {
+    document.getElementById('infoIpText').innerText = ip;
+    document.getElementById('ipInfoLoader').style.display = 'inline-block';
+    document.getElementById('ipInfoContent').style.display = 'none';
+    ipInfoModal.show();
+
+    try {
+        const res = await fetch(`/api/ip_info/${ip}`);
+        if (res.status === 401) { location.reload(); return; }
+        const result = await res.json();
+        
+        document.getElementById('ipInfoLoader').style.display = 'none';
+        
+        if (result.success && result.data.status === 'success') {
+            document.getElementById('ipInfoContent').style.display = 'block';
+            document.getElementById('infoCountry').innerText = result.data.country || 'Неизвестно';
+            document.getElementById('infoCity').innerText = result.data.city || 'Неизвестно';
+            document.getElementById('infoIsp').innerText = result.data.isp || 'Неизвестно';
+            document.getElementById('infoOrg').innerText = result.data.org || 'Неизвестно';
+        } else {
+            alert('Не удалось получить информацию об IP (возможно локальный адрес)');
+            ipInfoModal.hide();
+        }
+    } catch (e) {
+        alert('Ошибка сети при запросе');
+        ipInfoModal.hide();
     }
 }

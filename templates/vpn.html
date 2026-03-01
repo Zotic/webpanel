@@ -4,41 +4,59 @@
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <h2 class="fw-bold text-secondary mb-0">VPN & Proxy Monitor</h2>
     <button class="btn btn-primary shadow-sm" onclick="location.reload()" style="border-radius: 8px;">
-        <span class="material-symbols-outlined" style="vertical-align: middle; font-size: 18px;">refresh</span> Обновить данные
+        <span class="material-symbols-outlined" style="vertical-align: middle; font-size: 18px;">refresh</span> Обновить
     </button>
 </div>
 
-<!-- Статус сервисов (4 колонки) -->
-<div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mb-4">
+<!-- Статус сервисов с ТУМБЛЕРАМИ (5 колонок) -->
+<div class="row row-cols-1 row-cols-md-3 row-cols-xl-5 g-3 mb-4">
     <div class="col">
         <div class="card border-0 shadow-sm h-100">
-            <div class="card-body d-flex justify-content-between align-items-center">
+            <div class="card-body d-flex justify-content-between align-items-center p-3">
                 <span class="fw-bold text-secondary">Xray (VLESS)</span>
-                <span class="badge {% if xray_status %}bg-success{% else %}bg-danger{% endif %} fs-6">{% if xray_status %}АКТИВЕН{% else %}ОСТАНОВЛЕН{% endif %}</span>
+                <div class="form-check form-switch fs-5 mb-0">
+                    <input class="form-check-input" type="checkbox" style="cursor: pointer;" onchange="toggleVpn('xray', this.checked)" {% if xray_status %}checked{% endif %}>
+                </div>
             </div>
         </div>
     </div>
     <div class="col">
         <div class="card border-0 shadow-sm h-100">
-            <div class="card-body d-flex justify-content-between align-items-center">
+            <div class="card-body d-flex justify-content-between align-items-center p-3">
                 <span class="fw-bold text-secondary">Outline</span>
-                <span class="badge {% if outline_status %}bg-success{% else %}bg-danger{% endif %} fs-6">{% if outline_status %}АКТИВЕН{% else %}ОСТАНОВЛЕН{% endif %}</span>
+                <div class="form-check form-switch fs-5 mb-0">
+                    <input class="form-check-input" type="checkbox" style="cursor: pointer;" onchange="toggleVpn('outline', this.checked)" {% if outline_status %}checked{% endif %}>
+                </div>
             </div>
         </div>
     </div>
     <div class="col">
         <div class="card border-0 shadow-sm h-100">
-            <div class="card-body d-flex justify-content-between align-items-center">
+            <div class="card-body d-flex justify-content-between align-items-center p-3">
+                <span class="fw-bold text-secondary">MTProto</span>
+                <div class="form-check form-switch fs-5 mb-0">
+                    <input class="form-check-input" type="checkbox" style="cursor: pointer;" onchange="toggleVpn('mtproto', this.checked)" {% if mtproto_status %}checked{% endif %}>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body d-flex justify-content-between align-items-center p-3">
                 <span class="fw-bold text-secondary">3proxy</span>
-                <span class="badge {% if proxy_status %}bg-success{% else %}bg-danger{% endif %} fs-6">{% if proxy_status %}АКТИВЕН{% else %}ОСТАНОВЛЕН{% endif %}</span>
+                <div class="form-check form-switch fs-5 mb-0">
+                    <input class="form-check-input" type="checkbox" style="cursor: pointer;" onchange="toggleVpn('3proxy', this.checked)" {% if proxy_status %}checked{% endif %}>
+                </div>
             </div>
         </div>
     </div>
     <div class="col">
         <div class="card border-0 shadow-sm h-100">
-            <div class="card-body d-flex justify-content-between align-items-center">
-                <span class="fw-bold text-secondary">Danted (SOCKS)</span>
-                <span class="badge {% if danted_status %}bg-success{% else %}bg-danger{% endif %} fs-6">{% if danted_status %}АКТИВЕН{% else %}ОСТАНОВЛЕН{% endif %}</span>
+            <div class="card-body d-flex justify-content-between align-items-center p-3">
+                <span class="fw-bold text-secondary">Danted</span>
+                <div class="form-check form-switch fs-5 mb-0">
+                    <input class="form-check-input" type="checkbox" style="cursor: pointer;" onchange="toggleVpn('danted', this.checked)" {% if danted_status %}checked{% endif %}>
+                </div>
             </div>
         </div>
     </div>
@@ -46,202 +64,159 @@
 
 <!-- Вкладки (Tabs) -->
 <ul class="nav nav-pills mb-4 bg-white p-2 shadow-sm" id="vpnTabs" role="tablist" style="border-radius: 12px; display: inline-flex; overflow-x: auto; flex-wrap: nowrap; max-width: 100%;">
-    <li class="nav-item" role="presentation">
-        <button class="nav-link active fw-bold px-4 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-xray" type="button" role="tab">Xray</button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link fw-bold px-4 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-outline" type="button" role="tab">Outline</button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link fw-bold px-4 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-3proxy" type="button" role="tab">3proxy</button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link fw-bold px-4 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-danted" type="button" role="tab">Danted</button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link fw-bold px-4 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-dns" type="button" role="tab">DNS Запросы</button>
-    </li>
+    <li class="nav-item"><button class="nav-link active fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-xray" type="button">Xray</button></li>
+    <li class="nav-item"><button class="nav-link fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-outline" type="button">Outline</button></li>
+    <li class="nav-item"><button class="nav-link fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-mtproto" type="button">MTProto</button></li>
+    <li class="nav-item"><button class="nav-link fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-3proxy" type="button">3proxy</button></li>
+    <li class="nav-item"><button class="nav-link fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-danted" type="button">Danted</button></li>
+    <li class="nav-item"><button class="nav-link fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-dns" type="button">DNS Запросы</button></li>
 </ul>
 
 <div class="tab-content" id="vpnTabsContent">
     
     <!-- ВКЛАДКА XRAY -->
-    <div class="tab-pane fade show active" id="tab-xray" role="tabpanel">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white fw-bold py-3 border-bottom-0">Соединения Xray</div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table align-middle mb-0 text-nowrap">
-                        <thead class="table-light"><tr><th class="ps-4">Время</th><th>Клиент</th><th>Назначение</th><th class="pe-4 text-center">Маршрут</th></tr></thead>
-                        <tbody>
-                            {% for conn in xray_connections %}
-                            <tr>
-                                <td class="ps-4 text-muted small">{{ conn.time }}</td>
-                                <td class="font-monospace text-primary">{{ conn.client }}</td>
-                                <td><span class="font-monospace">{{ conn.dest }}</span>{% if conn.domain %}<br><small class="text-muted">→ {{ conn.domain }}</small>{% endif %}</td>
-                                <td class="pe-4 text-center"><span class="badge bg-{% if conn.route_class == 'direct' %}success{% else %}primary{% endif %}">{{ conn.route }}</span></td>
-                            </tr>
-                            {% else %}<tr><td colspan="4" class="text-center py-4 text-muted">Нет недавних соединений Xray</td></tr>{% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+    <div class="tab-pane fade show active" id="tab-xray">
+        <div class="card border-0 shadow-sm"><div class="card-body p-0"><div class="table-responsive">
+            <table class="table align-middle mb-0 text-nowrap">
+                <thead class="table-light"><tr><th class="ps-4">Время</th><th>Клиент</th><th>Назначение</th><th class="pe-4 text-center">Маршрут</th></tr></thead>
+                <tbody>
+                    {% for conn in xray_connections %}<tr><td class="ps-4 text-muted small">{{ conn.time }}</td><td class="font-monospace text-primary">{{ conn.client }}</td><td><span class="font-monospace">{{ conn.dest }}</span>{% if conn.domain %}<br><small class="text-muted">→ {{ conn.domain }}</small>{% endif %}</td><td class="pe-4 text-center"><span class="badge bg-{% if conn.route_class == 'direct' %}success{% else %}primary{% endif %}">{{ conn.route }}</span></td></tr>{% else %}<tr><td colspan="4" class="text-center py-4 text-muted">Нет соединений Xray</td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div></div></div>
     </div>
 
     <!-- ВКЛАДКА OUTLINE -->
-    <div class="tab-pane fade" id="tab-outline" role="tabpanel">
-        <div class="alert alert-primary shadow-sm border-0 d-flex align-items-center gap-2 mx-3 mt-3" style="border-radius: 10px;">
-            <span class="material-symbols-outlined fs-4">privacy_tip</span>
-            <small>В целях приватности Outline не ведет логи IP-адресов. Здесь отображается только статистика потребления трафика (Prometheus).</small>
-        </div>
-        
+    <div class="tab-pane fade" id="tab-outline">
         <div class="card border-0 shadow-sm mt-3">
             <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center">
-                <span class="fw-bold">Статистика ключей Outline</span>
-                <!-- Кнопка сброса -->
-                <button class="btn btn-sm btn-outline-danger shadow-sm" onclick="resetOutlineStats()">
-                    Сбросить статистику
-                </button>
+                <span class="fw-bold">Статистика трафика Outline</span>
+                <button class="btn btn-sm btn-outline-danger shadow-sm" onclick="resetOutlineStats()">Сбросить статистику</button>
             </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table align-middle mb-0 text-nowrap">
-                        <thead class="table-light"><tr><th class="ps-4" style="width: 80px;">ID</th><th>Имя пользователя / Ключ</th><th class="pe-4">Использовано трафика</th></tr></thead>
-                        <tbody>
-                            {% for item in outline_metrics %}
-                            <tr>
-                                <td class="ps-4 text-muted font-monospace">{{ item.id }}</td>
-                                <td class="fw-bold text-dark">{{ item.name }}</td>
-                                <td class="pe-4"><span class="badge bg-info text-dark fs-6">{{ item.usage }}</span></td>
-                            </tr>
-                            {% else %}<tr><td colspan="3" class="text-center py-4 text-muted">Данных Outline не найдено</td></tr>{% endfor %}
-                        </tbody>
-                    </table>
+            <div class="card-body p-0"><div class="table-responsive">
+                <table class="table align-middle mb-0 text-nowrap">
+                    <thead class="table-light"><tr><th class="ps-4" style="width: 80px;">ID</th><th>Имя пользователя / Ключ</th><th class="pe-4">Использовано трафика</th></tr></thead>
+                    <tbody>
+                        {% for item in outline_metrics %}<tr><td class="ps-4 text-muted font-monospace">{{ item.id }}</td><td class="fw-bold text-dark">{{ item.name }}</td><td class="pe-4"><span class="badge bg-info text-dark fs-6">{{ item.usage }}</span></td></tr>{% else %}<tr><td colspan="3" class="text-center py-4 text-muted">Данных Outline не найдено</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div></div>
+        </div>
+    </div>
+
+    <!-- ВКЛАДКА MTPROTO (НОВАЯ) -->
+    <div class="tab-pane fade" id="tab-mtproto">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm bg-primary text-white h-100">
+                    <div class="card-body text-center py-4">
+                        <span class="material-symbols-outlined fs-1 mb-2">schedule</span>
+                        <h5 class="fw-bold mb-0">Аптайм сервера</h5>
+                        <p class="fs-4 fw-bold mb-0">{{ mtproto_stats.uptime_formatted }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm bg-success text-white h-100">
+                    <div class="card-body text-center py-4">
+                        <span class="material-symbols-outlined fs-1 mb-2">people</span>
+                        <h5 class="fw-bold mb-0">Активные подключения</h5>
+                        <p class="fs-2 fw-bold mb-0">{{ mtproto_stats.active_connections }}</p>
+                        <small>Из общего числа: {{ mtproto_stats.total_connections }}</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm bg-secondary text-white h-100">
+                    <div class="card-body text-center py-4">
+                        <span class="material-symbols-outlined fs-1 mb-2">info</span>
+                        <h5 class="fw-bold mb-0">Версия прокси</h5>
+                        <p class="mb-0 font-monospace mt-2" style="font-size: 0.85rem; word-break: break-all;">{{ mtproto_stats.version }}</p>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- ВКЛАДКА 3PROXY -->
-    <div class="tab-pane fade" id="tab-3proxy" role="tabpanel">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white fw-bold py-3 border-bottom-0">Соединения 3proxy</div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table align-middle mb-0 text-nowrap">
-                        <thead class="table-light"><tr><th class="ps-4">Время</th><th>Пользователь</th><th>Клиент</th><th>Назначение</th><th class="pe-4">Событие</th></tr></thead>
-                        <tbody>
-                            {% for conn in proxy_connections %}
-                            <tr>
-                                <td class="ps-4 text-muted small">{{ conn.time }}</td>
-                                <td class="fw-bold">{{ conn.user }}</td>
-                                <td class="font-monospace text-primary">{{ conn.client }}</td>
-                                <td class="font-monospace">{{ conn.dest }}</td>
-                                <td class="pe-4 text-muted small">{{ conn.status }}</td>
-                            </tr>
-                            {% else %}<tr><td colspan="5" class="text-center py-4 text-muted">Нет недавних соединений 3proxy</td></tr>{% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+    <div class="tab-pane fade" id="tab-3proxy">
+        <div class="card border-0 shadow-sm"><div class="card-body p-0"><div class="table-responsive">
+            <table class="table align-middle mb-0 text-nowrap">
+                <thead class="table-light"><tr><th class="ps-4">Время</th><th>Пользователь</th><th>Клиент</th><th>Назначение</th><th class="pe-4">Событие</th></tr></thead>
+                <tbody>{% for conn in proxy_connections %}<tr><td class="ps-4 text-muted small">{{ conn.time }}</td><td class="fw-bold">{{ conn.user }}</td><td class="font-monospace text-primary">{{ conn.client }}</td><td class="font-monospace">{{ conn.dest }}</td><td class="pe-4 text-muted small">{{ conn.status }}</td></tr>{% else %}<tr><td colspan="5" class="text-center py-4 text-muted">Нет соединений 3proxy</td></tr>{% endfor %}</tbody>
+            </table>
+        </div></div></div>
     </div>
 
     <!-- ВКЛАДКА DANTED -->
-    <div class="tab-pane fade" id="tab-danted" role="tabpanel">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white fw-bold py-3 border-bottom-0">Соединения Danted (Socks5)</div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table align-middle mb-0">
-                        <thead class="table-light"><tr><th class="ps-4">Время</th><th>Статус</th><th>Юзер</th><th>Клиент</th><th>Цель</th><th class="pe-4">Лог</th></tr></thead>
-                        <tbody>
-                            {% for conn in danted_connections %}
-                            <tr class="{% if conn.status == 'block' %}table-danger{% endif %}">
-                                <td class="ps-4 text-muted small text-nowrap">{{ conn.time }}</td>
-                                <td><span class="badge {% if conn.status == 'pass' %}bg-success{% elif conn.status == 'block' %}bg-danger{% else %}bg-secondary{% endif %}">{{ conn.status|upper }}</span></td>
-                                <td class="fw-bold">{{ conn.user }}</td>
-                                <td class="font-monospace text-primary text-nowrap">{{ conn.client }}</td>
-                                <td class="font-monospace text-nowrap">{{ conn.dest }}</td>
-                                <td class="pe-4 small text-muted" style="max-width: 300px; word-wrap: break-word; white-space: normal;">{{ conn.raw }}</td>
-                            </tr>
-                            {% else %}<tr><td colspan="6" class="text-center py-4 text-muted">Нет недавних соединений Danted</td></tr>{% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+    <div class="tab-pane fade" id="tab-danted">
+        <div class="card border-0 shadow-sm"><div class="card-body p-0"><div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead class="table-light"><tr><th class="ps-4">Время</th><th>Статус</th><th>Юзер</th><th>Клиент</th><th>Цель</th><th class="pe-4">Лог</th></tr></thead>
+                <tbody>{% for conn in danted_connections %}<tr class="{% if conn.status == 'block' %}table-danger{% endif %}"><td class="ps-4 text-muted small text-nowrap">{{ conn.time }}</td><td><span class="badge {% if conn.status == 'pass' %}bg-success{% elif conn.status == 'block' %}bg-danger{% else %}bg-secondary{% endif %}">{{ conn.status|upper }}</span></td><td class="fw-bold">{{ conn.user }}</td><td class="font-monospace text-primary text-nowrap">{{ conn.client }}</td><td class="font-monospace text-nowrap">{{ conn.dest }}</td><td class="pe-4 small text-muted" style="max-width: 300px; word-wrap: break-word; white-space: normal;">{{ conn.raw }}</td></tr>{% else %}<tr><td colspan="6" class="text-center py-4 text-muted">Нет соединений Danted</td></tr>{% endfor %}</tbody>
+            </table>
+        </div></div></div>
     </div>
 
     <!-- ВКЛАДКА DNS -->
-    <div class="tab-pane fade" id="tab-dns" role="tabpanel">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white fw-bold py-3 border-bottom-0">DNS Запросы (dnsmasq)</div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table align-middle mb-0 text-nowrap">
-                        <thead class="table-light"><tr><th class="ps-4">Время</th><th>Клиент</th><th>Домен</th><th class="pe-4">Тип</th></tr></thead>
-                        <tbody>
-                            {% for query in dns_queries %}
-                            <tr>
-                                <td class="ps-4 text-muted small">{{ query.time }}</td>
-                                <td class="font-monospace">{{ query.client }}</td>
-                                <td class="font-monospace text-primary">{{ query.domain }}</td>
-                                <td class="pe-4"><span class="badge bg-secondary">{{ query.type }}</span></td>
-                            </tr>
-                            {% else %}<tr><td colspan="4" class="text-center py-4 text-muted">Нет недавних DNS запросов</td></tr>{% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+    <div class="tab-pane fade" id="tab-dns">
+        <div class="card border-0 shadow-sm"><div class="card-body p-0"><div class="table-responsive">
+            <table class="table align-middle mb-0 text-nowrap">
+                <thead class="table-light"><tr><th class="ps-4">Время</th><th>Клиент</th><th>Домен</th><th class="pe-4">Тип</th></tr></thead>
+                <tbody>{% for query in dns_queries %}<tr><td class="ps-4 text-muted small">{{ query.time }}</td><td class="font-monospace">{{ query.client }}</td><td class="font-monospace text-primary">{{ query.domain }}</td><td class="pe-4"><span class="badge bg-secondary">{{ query.type }}</span></td></tr>{% else %}<tr><td colspan="4" class="text-center py-4 text-muted">Нет DNS запросов</td></tr>{% endfor %}</tbody>
+            </table>
+        </div></div></div>
     </div>
-
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // Сохранение активной вкладки
+    // Сохранение вкладок
     document.addEventListener("DOMContentLoaded", function() {
         var tabs = document.querySelectorAll('button[data-bs-toggle="tab"]');
         tabs.forEach(function(tab) {
             tab.addEventListener('shown.bs.tab', function (event) {
-                var activeTabId = event.target.getAttribute('data-bs-target');
-                localStorage.setItem('activeVpnTab', activeTabId);
+                localStorage.setItem('activeVpnTab', event.target.getAttribute('data-bs-target'));
             });
         });
-
         var savedTabId = localStorage.getItem('activeVpnTab');
         if (savedTabId) {
             var tabBtn = document.querySelector('button[data-bs-target="' + savedTabId + '"]');
-            if (tabBtn) {
-                var tabInstance = new bootstrap.Tab(tabBtn);
-                tabInstance.show();
-            }
+            if (tabBtn) new bootstrap.Tab(tabBtn).show();
         }
     });
 
-    // Функция сброса статистики Outline
-    async function resetOutlineStats() {
-        if (!confirm("Вы уверены? Это обнулит статистику трафика для всех ключей (сбросится за счет перезапуска контейнера). Сами ключи НЕ удалятся.")) return;
-        
+    // Включение/выключение VPN тумблерами
+    async function toggleVpn(service, isChecked) {
+        const action = isChecked ? 'start' : 'stop';
         try {
-            const res = await fetch('/api/outline/reset', { method: 'POST' });
+            const res = await fetch('/api/vpn/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service: service, action: action })
+            });
             if (res.status === 401) { location.reload(); return; }
             const data = await res.json();
-            
-            if (data.success) {
-                // Ждем пару секунд, пока Docker перезапустится, и обновляем страницу
-                setTimeout(() => location.reload(), 2000); 
-            } else {
-                alert('Ошибка: ' + data.error);
+            if (!data.success) {
+                alert('Ошибка изменения статуса: ' + data.error);
+                location.reload(); // Возвращаем тумблер обратно
             }
-        } catch (e) {
+        } catch(e) {
             console.error(e);
-            alert('Произошла ошибка при отправке запроса.');
+            location.reload();
         }
+    }
+
+    // Сброс Outline
+    async function resetOutlineStats() {
+        if (!confirm("Вы уверены? Обнулит статистику трафика (перезапуск контейнера).")) return;
+        try {
+            const res = await fetch('/api/outline/reset', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) setTimeout(() => location.reload(), 2000); 
+            else alert('Ошибка: ' + data.error);
+        } catch (e) { console.error(e); }
     }
 </script>
 {% endblock %}

@@ -8,6 +8,7 @@ import psutil
 from datetime import datetime
 from functools import wraps, lru_cache
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+import urllib.request
 
 app = Flask(__name__)
 
@@ -196,6 +197,38 @@ def get_all_services():
 # ========================================
 # ФУНКЦИИ ДЛЯ VPN / XRAY / OUTLINE / ПРОКСИ
 # ========================================
+
+def get_mtproto_status():
+    try:
+        res = subprocess.run(['docker', 'ps', '--filter', 'name=mtproto-proxy', '--format', '{{.Status}}'], capture_output=True, text=True)
+        return "active" if "Up" in res.stdout else "inactive"
+    except: return "unknown"
+
+def get_mtproto_stats():
+    stats = {"uptime": "0", "active_connections": "0", "total_connections": "0", "version": "Неизвестно"}
+    try:
+        res = subprocess.run(['docker', 'exec', 'mtproto-proxy', 'curl', '-s', 'http://localhost:2398/stats'], capture_output=True, text=True)
+        for line in res.stdout.split('\n'):
+            parts = line.split('\t')
+            if len(parts) >= 2:
+                if parts[0] == 'uptime': stats['uptime'] = parts[1]
+                elif parts[0] == 'active_connections': stats['active_connections'] = parts[1]
+                elif parts[0] == 'total_connections': stats['total_connections'] = parts[1]
+                elif parts[0] == 'version': stats['version'] = parts[1]
+    except: pass
+    
+    # Красиво форматируем время работы (аптайм)
+    try:
+        secs = int(stats['uptime'])
+        m, s = divmod(secs, 60)
+        h, m = divmod(m, 60)
+        d, h = divmod(h, 24)
+        stats['uptime_formatted'] = f"{d}д {h}ч {m}м"
+    except:
+        stats['uptime_formatted'] = "0д 0ч 0м"
+        
+    return stats
+
 def get_outline_status():
     try:
         res = subprocess.run(['docker', 'ps', '--filter', 'name=shadowbox', '--format', '{{.Status}}'], capture_output=True, text=True)
@@ -262,7 +295,7 @@ def get_proxy_pids():
     global _proxy_pids_cache, _proxy_pids_time
     if time.time() - _proxy_pids_time > 15:
         pids = set()
-        proxy_names = ['xray', '3proxy', 'danted', 'shadowbox', 'docker-proxy']
+        proxy_names = ['xray', '3proxy', 'danted', 'shadowbox', 'docker-proxy', 'mtproto-proxy']
         for proc in psutil.process_iter(['pid', 'name']):
             try:
                 name = proc.info['name'].lower()
@@ -550,10 +583,12 @@ def vpn():
                            proxy_status=run_command("systemctl is-active 3proxy") == "active",
                            danted_status=run_command("systemctl is-active danted") == "active",
                            outline_status=(get_outline_status() == "active"),
+                           mtproto_status=(get_mtproto_status() == "active"), # ДОБАВЛЕНО
                            xray_connections=get_recent_connections(),
                            proxy_connections=get_3proxy_connections(),
                            danted_connections=get_danted_connections(),
                            outline_metrics=get_outline_metrics(),
+                           mtproto_stats=get_mtproto_stats(), # ДОБАВЛЕНО
                            dns_queries=get_dns_queries())
 
 @app.route('/vpn_users')
@@ -565,6 +600,40 @@ def vpn_users_page():
 # ========================================
 # МАРШРУТЫ (API)
 # ========================================
+
+@app.route('/api/ip_info/<ip>', methods=['GET'])
+@login_required
+def ip_info(ip):
+    """Узнает город и провайдера по IP через бесплатный API"""
+    try:
+        url = f"http://ip-api.com/json/{ip}?lang=ru"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read().decode())
+            return jsonify({"success": True, "data": data})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/vpn/action', methods=['POST'])
+@login_required
+def api_vpn_action():
+    """Включает и выключает VPN сервисы"""
+    service = request.json.get('service')
+    action = request.json.get('action') # 'start' или 'stop'
+    try:
+        if service in ['xray', '3proxy', 'danted']:
+            run_command(f"systemctl {action} {service}")
+        elif service in ['outline', 'mtproto']:
+            container = "shadowbox" if service == "outline" else "mtproto-proxy"
+            if service == "outline":
+                # Ищем контейнер даже если он выключен (-a)
+                res = subprocess.run(['docker', 'ps', '-a', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
+                if res.stdout.strip(): container = res.stdout.strip().split('\n')[0]
+            run_command(f"docker {action} {container}")
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 @app.route('/api/files', methods=['POST'])
 @login_required
 def get_files():
