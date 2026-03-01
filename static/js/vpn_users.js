@@ -64,12 +64,14 @@ function renderInbound(users) {
             ? `<span class="fw-bold text-dark align-middle me-2">${user.username}</span>` 
             : `<span class="text-muted small align-middle me-2">Без имени</span>`;
             
+        // ДОБАВЛЕН КЛАСС cursor-pointer к карандашу
         userNameHtml += `<span class="material-symbols-outlined text-primary align-middle cursor-pointer" style="font-size: 16px;" onclick="openNameModal('${user.ip}', '${rawName}')" title="Изменить имя">edit</span>`;
 
         tr.innerHTML = `
             <td class="text-center align-middle" style="width: 100px;">${statusBadge}</td>
             <td class="fw-bold font-monospace text-primary align-middle">
                 ${user.ip}
+                <!-- ДОБАВЛЕН КЛАСС cursor-pointer к знаку вопроса -->
                 <span class="material-symbols-outlined text-info align-middle ms-1 cursor-pointer" style="font-size: 18px;" onclick="showIpInfo('${user.ip}')" title="Инфо">help</span>
             </td>
             <td class="align-middle">${userNameHtml}</td>
@@ -175,7 +177,7 @@ async function applyCustomName() {
     } catch (e) {}
 }
 
-// === ФУНКЦИЯ ИНФО ОБ IP ===
+// === ФУНКЦИЯ ИНФО ОБ IP (Обновлено для ipinfo.io) ===
 async function showIpInfo(ip) {
     document.getElementById('infoIpText').innerText = ip;
     document.getElementById('ipInfoLoader').style.display = 'inline-block';
@@ -189,12 +191,25 @@ async function showIpInfo(ip) {
         
         document.getElementById('ipInfoLoader').style.display = 'none';
         
-        if (result.success && result.data.status === 'success') {
+        if (result.success && result.data) {
+            // ipinfo.io возвращает данные в другом формате
+            const d = result.data;
             document.getElementById('ipInfoContent').style.display = 'block';
-            document.getElementById('infoCountry').innerText = result.data.country || 'Неизвестно';
-            document.getElementById('infoCity').innerText = result.data.city || 'Неизвестно';
-            document.getElementById('infoIsp').innerText = result.data.isp || 'Неизвестно';
-            document.getElementById('infoOrg').innerText = result.data.org || 'Неизвестно';
+            
+            // Если есть и регион, и страна, склеиваем их (например: "Россия, Московская область")
+            let location = d.country || 'Неизвестно';
+            if (d.region) location = `${d.country}, ${d.region}`;
+            
+            document.getElementById('infoCountry').innerText = location;
+            document.getElementById('infoCity').innerText = d.city || 'Неизвестно';
+            
+            // Провайдер и организация в ipinfo обычно лежат в поле "org"
+            let isp = d.org || 'Неизвестно';
+            // Убираем номер автономной системы (AS12345), если он есть в начале
+            isp = isp.replace(/^AS\d+\s/, ''); 
+            
+            document.getElementById('infoIsp').innerText = isp;
+            document.getElementById('infoOrg').innerText = isp; // Оставляем дубль для совместимости шаблона
         } else {
             alert('Не удалось получить информацию об IP');
             ipInfoModal.hide();

@@ -619,12 +619,23 @@ def vpn_users_page():
 @app.route('/api/ip_info/<ip>', methods=['GET'])
 @login_required
 def ip_info(ip):
-    """Узнает город и провайдера по IP через бесплатный API"""
+    """Узнает город и провайдера по IP через высокоточный API ipinfo.io"""
     try:
-        url = f"http://ip-api.com/json/{ip}?lang=ru"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        # Используем ipinfo.io. Он точнее определяет мелкие города.
+        url = f"https://ipinfo.io/{ip}/json"
+        
+        # Добавляем заголовки, чтобы сервис не заблокировал нас
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Accept': 'application/json'
+        })
+        
         with urllib.request.urlopen(req, timeout=3) as response:
             data = json.loads(response.read().decode())
+            # ipinfo.io возвращает ошибку прямо в JSON (bogon=true для локальных IP)
+            if data.get('bogon'):
+                return jsonify({"success": False, "error": "Локальный IP адрес"})
+                
             return jsonify({"success": True, "data": data})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
