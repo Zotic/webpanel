@@ -1,8 +1,13 @@
 let limitModal = null;
+let nameModal = null;
+let ipInfoModal = null;
 let currentEditingIp = null;
 
 document.addEventListener("DOMContentLoaded", () => {
     limitModal = new bootstrap.Modal(document.getElementById('limitModal'));
+    nameModal = new bootstrap.Modal(document.getElementById('nameModal'));
+    ipInfoModal = new bootstrap.Modal(document.getElementById('ipInfoModal'));
+    
     fetchConnections();
     setInterval(fetchConnections, 5000); 
 });
@@ -35,38 +40,38 @@ function renderInbound(users) {
     users.forEach(user => {
         const tr = document.createElement('tr');
         
-        // Статус
         let statusBadge = user.connections > 0 
             ? '<span class="badge bg-success w-100">ОНЛАЙН</span>' 
             : '<span class="badge bg-secondary w-100">ОФФЛАЙН</span>';
             
-        // Лимит скорости
         let limitHtml = user.limit 
             ? `<span class="badge bg-warning text-dark fw-bold px-3 py-2" style="font-size: 0.9rem;">${user.limit} Мбит/с</span>` 
             : '<span class="text-muted">Без ограничений</span>';
             
-        // Кнопки действий
         let actionButtons = '';
         if (user.limit) {
             actionButtons = `
-                <button class="btn btn-sm btn-outline-primary me-1" onclick="openLimitModal('${user.ip}', ${user.limit})">Изменить</button>
+                <button class="btn btn-sm btn-outline-primary me-1" onclick="openLimitModal('${user.ip}', ${user.limit})">Изменить лимит</button>
                 <button class="btn btn-sm btn-danger" onclick="removeLimit('${user.ip}')">Снять</button>
             `;
         } else {
             actionButtons = `<button class="btn btn-sm btn-outline-warning" onclick="openLimitModal('${user.ip}', '')">Ограничить</button>`;
         }
 
-        // Имя пользователя
+        // Имя пользователя + Кнопка карандаша
+        let rawName = user.username ? user.username.replace(/'/g, "\\'") : '';
         let userNameHtml = user.username 
-            ? `<span class="fw-bold text-dark">${user.username}</span>` 
-            : `<span class="text-muted small">Без авторизации (или Xray)</span>`;
+            ? `<span class="fw-bold text-dark align-middle me-2">${user.username}</span>` 
+            : `<span class="text-muted small align-middle me-2">Без имени</span>`;
+            
+        userNameHtml += `<span class="material-symbols-outlined text-primary align-middle cursor-pointer" style="font-size: 16px;" onclick="openNameModal('${user.ip}', '${rawName}')" title="Изменить имя">edit</span>`;
 
         tr.innerHTML = `
             <td class="text-center align-middle" style="width: 100px;">${statusBadge}</td>
             <td class="fw-bold font-monospace text-primary align-middle">
-    ${user.ip}
-    <span class="material-symbols-outlined text-info align-middle ms-1" style="font-size: 18px; cursor: help;" onclick="showIpInfo('${user.ip}')" title="Узнать город и провайдера">help</span>
-</td>
+                ${user.ip}
+                <span class="material-symbols-outlined text-info align-middle ms-1 cursor-pointer" style="font-size: 18px;" onclick="showIpInfo('${user.ip}')" title="Инфо">help</span>
+            </td>
             <td class="align-middle">${userNameHtml}</td>
             <td class="text-center align-middle">
                 <span class="badge bg-light text-success border fs-6" title="Входящие соединения">
@@ -97,7 +102,6 @@ function renderOutbound(sites) {
             ? `<br><small class="text-muted font-monospace" style="font-size: 0.8rem;">→ ${site.domain}</small>` 
             : '';
             
-        // Форматируем список пользователей
         let usersHtml = site.users === "Неизвестно"
             ? `<span class="text-muted small">${site.users}</span>`
             : `<span class="fw-bold text-dark">${site.users}</span>`;
@@ -118,7 +122,7 @@ function renderOutbound(sites) {
     });
 }
 
-// Функции управления лимитами
+// === ФУНКЦИИ ЛИМИТОВ СКОРОСТИ ===
 function openLimitModal(ip, currentSpeed) {
     currentEditingIp = ip;
     document.getElementById('modalIpText').innerText = ip;
@@ -128,46 +132,50 @@ function openLimitModal(ip, currentSpeed) {
 
 async function applyLimit() {
     const speed = document.getElementById('speedInput').value;
-    if (!speed || speed < 1) {
-        alert("Введите корректную скорость (от 1 Мбит/с)");
-        return;
-    }
+    if (!speed || speed < 1) { alert("Введите скорость от 1 Мбит/с"); return; }
     await sendLimitRequest(currentEditingIp, parseInt(speed));
     limitModal.hide();
 }
 
 async function removeLimit(ip) {
-    if (confirm(`Снять ограничения скорости для ${ip}?`)) {
-        await sendLimitRequest(ip, null);
-    }
+    if (confirm(`Снять ограничения скорости для ${ip}?`)) await sendLimitRequest(ip, null);
 }
 
 async function sendLimitRequest(ip, speed) {
     try {
         const res = await fetch('/api/set_speed_limit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ip: ip, speed: speed })
         });
         if (res.status === 401) { location.reload(); return; }
-        const data = await res.json();
-        
-        if (data.success) {
-            fetchConnections(); // Обновляем таблицу
-        } else {
-            alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
-        }
-    } catch (e) {
-        console.error("Ошибка установки лимита:", e);
-    }
+        await res.json();
+        fetchConnections();
+    } catch (e) {}
 }
 
-let ipInfoModal = null;
-document.addEventListener("DOMContentLoaded", () => {
-    ipInfoModal = new bootstrap.Modal(document.getElementById('ipInfoModal'));
-});
+// === ФУНКЦИИ ИМЕН ПОЛЬЗОВАТЕЛЕЙ ===
+function openNameModal(ip, currentName) {
+    currentEditingIp = ip;
+    document.getElementById('modalNameIpText').innerText = ip;
+    document.getElementById('nameInput').value = currentName;
+    nameModal.show();
+}
 
-// Запрос инфы об IP
+async function applyCustomName() {
+    const name = document.getElementById('nameInput').value;
+    try {
+        const res = await fetch('/api/set_custom_name', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip: currentEditingIp, name: name })
+        });
+        if (res.status === 401) { location.reload(); return; }
+        await res.json();
+        fetchConnections();
+        nameModal.hide();
+    } catch (e) {}
+}
+
+// === ФУНКЦИЯ ИНФО ОБ IP ===
 async function showIpInfo(ip) {
     document.getElementById('infoIpText').innerText = ip;
     document.getElementById('ipInfoLoader').style.display = 'inline-block';
@@ -188,7 +196,7 @@ async function showIpInfo(ip) {
             document.getElementById('infoIsp').innerText = result.data.isp || 'Неизвестно';
             document.getElementById('infoOrg').innerText = result.data.org || 'Неизвестно';
         } else {
-            alert('Не удалось получить информацию об IP (возможно локальный адрес)');
+            alert('Не удалось получить информацию об IP');
             ipInfoModal.hide();
         }
     } catch (e) {

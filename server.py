@@ -24,6 +24,21 @@ DEFAULT_DIR = "/root/Bots"
 BOTS_ORDER_FILE = "bots_order.json"
 LIMITS_FILE = "ip_limits.json"
 
+CUSTOM_NAMES_FILE = "custom_names.json"
+
+def get_custom_names():
+    if os.path.exists(CUSTOM_NAMES_FILE):
+        try:
+            with open(CUSTOM_NAMES_FILE, 'r') as f:
+                return json.load(f)
+        except: pass
+    return {}
+
+def save_custom_names(names):
+    with open(CUSTOM_NAMES_FILE, 'w') as f:
+        json.dump(names, f)
+
+
 # Глобальные переменные для расчета скорости сети
 last_net_io = None
 last_net_time = 0
@@ -786,24 +801,52 @@ def api_vpn_users():
     inbound, outbound = get_active_vpn_users()
     limits = get_limits()
     known_users, target_to_user = analyze_proxy_logs()
+    custom_names = get_custom_names() # Достаем ваши личные имена
     
     inbound_list = []
     for ip in set(inbound.keys()).union(set(limits.keys())):
+        # Приоритет: 1. Ваше личное имя, 2. Имя из логов
+        username = custom_names.get(ip, known_users.get(ip, ""))
+        
         inbound_list.append({
-            "ip": ip, "username": known_users.get(ip, ""),
-            "connections": inbound.get(ip, 0), "limit": limits.get(ip, {}).get('speed', None)
+            "ip": ip, 
+            "username": username,
+            "connections": inbound.get(ip, 0), 
+            "limit": limits.get(ip, {}).get('speed', None)
         })
     inbound_list.sort(key=lambda x: (x['connections'] > 0, x['connections']), reverse=True)
 
     outbound_list = []
     for ip, count in outbound.items():
-        domain = reverse_dns(ip) # Быстрый DNS резолв
+        domain = reverse_dns(ip)
         users_list = target_to_user.get(ip, [])
-        if not users_list and domain and domain in target_to_user: users_list = target_to_user[domain]
-        outbound_list.append({"ip": ip, "domain": domain if domain else "", "connections": count, "users": ", ".join(users_list) if users_list else "Неизвестно"})
+        if not users_list and domain and domain in target_to_user: 
+            users_list = target_to_user[domain]
+            
+        # Заменяем логины из логов на ваши личные, если они есть
+        final_users = []
+        for u in users_list:
+            final_users.append(custom_names.get(u, u))
+            
+        outbound_list.append({"ip": ip, "domain": domain if domain else "", "connections": count, "users": ", ".join(final_users) if final_users else "Неизвестно"})
     outbound_list.sort(key=lambda x: x['connections'], reverse=True)
 
     return jsonify({"success": True, "inbound": inbound_list, "outbound": outbound_list})
+
+@app.route('/api/set_custom_name', methods=['POST'])
+@login_required
+def api_set_custom_name():
+    ip = request.json.get('ip')
+    name = request.json.get('name')
+    
+    names = get_custom_names()
+    if not name or name.strip() == "":
+        if ip in names: del names[ip]
+    else:
+        names[ip] = name.strip()
+        
+    save_custom_names(names)
+    return jsonify({"success": True})
 
 @app.route('/api/set_speed_limit', methods=['POST'])
 @login_required

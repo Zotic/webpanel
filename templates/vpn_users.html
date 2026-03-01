@@ -10,16 +10,17 @@
     </div>
 </div>
 
-<!-- Вкладки (Tabs) -->
+<!-- Вкладки (Tabs) с исправленными цветами иконок -->
 <ul class="nav nav-pills mb-3 bg-white p-2 shadow-sm" id="connTabs" role="tablist" style="border-radius: 12px; display: inline-flex;">
     <li class="nav-item" role="presentation">
         <button class="nav-link active fw-bold px-4 d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-inbound" type="button" role="tab">
-            <span class="material-symbols-outlined text-success">download</span> Входящие (Клиенты)
+            <!-- Иконка наследует цвет текста кнопки -->
+            <span class="material-symbols-outlined">download</span> Входящие (Клиенты)
         </button>
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link fw-bold px-4 d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-outbound" type="button" role="tab">
-            <span class="material-symbols-outlined text-primary">upload</span> Исходящие (Сайты)
+            <span class="material-symbols-outlined">upload</span> Исходящие (Сайты)
         </button>
     </li>
 </ul>
@@ -28,11 +29,6 @@
     
     <!-- ВКЛАДКА: ВХОДЯЩИЕ -->
     <div class="tab-pane fade show active" id="tab-inbound" role="tabpanel">
-        <div class="alert alert-success shadow-sm d-flex align-items-center gap-2" style="border-radius: 12px;">
-            <span class="material-symbols-outlined fs-5">info</span>
-            Здесь отображаются IP-адреса пользователей, подключенных к вашему серверу. Вы можете ограничить им скорость.
-        </div>
-
         <div class="card border-0 shadow-sm mb-4">
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -58,11 +54,6 @@
 
     <!-- ВКЛАДКА: ИСХОДЯЩИЕ -->
     <div class="tab-pane fade" id="tab-outbound" role="tabpanel">
-        <div class="alert alert-primary shadow-sm d-flex align-items-center gap-2" style="border-radius: 12px;">
-            <span class="material-symbols-outlined fs-5">info</span>
-            Куда сейчас обращается ваш сервер от лица пользователей. Домены определяются автоматически (Reverse DNS).
-        </div>
-
         <div class="card border-0 shadow-sm mb-4">
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -85,7 +76,7 @@
 
 </div>
 
-<!-- Модальное окно установки лимита -->
+<!-- МОДАЛКИ (Лимит + Смена имени + Инфо об IP) -->
 <div class="modal fade" id="limitModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content" style="border-radius: 12px; border: none;">
@@ -108,7 +99,26 @@
     </div>
 </div>
 
-<!-- Модальное окно информации об IP -->
+<div class="modal fade" id="nameModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius: 12px; border: none;">
+            <div class="modal-header border-bottom-0">
+                <h5 class="modal-title fw-bold">Имя клиента</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-0">
+                <p class="text-muted small">Задайте понятное имя для IP: <strong id="modalNameIpText" class="text-dark font-monospace"></strong></p>
+                <input type="text" id="nameInput" class="form-control" placeholder="Например: ПК Ивана">
+                <small class="text-muted d-block mt-2">Оставьте пустым, чтобы сбросить имя.</small>
+            </div>
+            <div class="modal-footer border-top-0">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="applyCustomName()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="ipInfoModal" tabindex="-1">
     <div class="modal-dialog modal-sm modal-dialog-centered">
         <div class="modal-content" style="border-radius: 12px; border: none;">
