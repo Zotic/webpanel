@@ -123,17 +123,25 @@ function renderProcessTable() {
     filteredData.forEach(p => {
         const tr = document.createElement('tr');
         
-        // Предупреждающий цвет, если процесс ест слишком много
         let rowClass = (p.cpu > 50 || p.ram_percent > 30) ? 'table-warning' : '';
         tr.className = rowClass;
         
-        // Обрезаем длинные пути с помощью классов text-truncate и d-inline-block
+        // Логика цвета для бейджика CPU
+        let cpuColor = 'bg-secondary';
+        if (p.cpu > 50) cpuColor = 'bg-danger';
+        else if (p.cpu > 10) cpuColor = 'bg-warning text-dark';
+        
+        // ИДЕНТИЧНАЯ логика цвета для бейджика RAM (опирается на проценты от всей памяти сервера)
+        let ramColor = 'bg-secondary';
+        if (p.ram_percent > 50) ramColor = 'bg-danger';
+        else if (p.ram_percent > 10) ramColor = 'bg-warning text-dark';
+        
         tr.innerHTML = `
             <td class="ps-4 text-muted">${p.pid}</td>
             <td class="fw-bold text-truncate">${p.name}</td>
             <td class="text-muted text-truncate" title="${p.path}">${p.path}</td>
-            <td class="text-center"><span class="badge ${p.cpu > 10 ? 'bg-danger' : 'bg-secondary'}">${p.cpu}%</span></td>
-            <td class="text-center pe-4"><span class="badge ${p.ram_mb > 500 ? 'bg-warning text-dark' : 'bg-light text-dark border'}">${p.ram_mb} MB (${p.ram_percent}%)</span></td>
+            <td class="text-center"><span class="badge ${cpuColor}">${p.cpu}%</span></td>
+            <td class="text-center pe-4"><span class="badge ${ramColor}">${p.ram_mb} MB (${p.ram_percent}%)</span></td>
         `;
         tbody.appendChild(tr);
     });

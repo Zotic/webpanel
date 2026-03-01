@@ -114,12 +114,12 @@
             <table class="table table-hover align-middle mb-0" style="font-size: 0.9rem; table-layout: fixed;">
                 <thead class="table-light position-sticky top-0" style="z-index: 1;">
                     <tr>
-                        <!-- Задаем жесткую ширину каждому столбцу -->
+                        <!-- Изменили ширину столбцов для идеального баланса -->
                         <th class="ps-4 cursor-pointer" onclick="changeSort('pid')" style="width: 10%;">PID <span id="sort-pid" class="text-muted"></span></th>
-                        <th class="cursor-pointer" onclick="changeSort('name')" style="width: 20%;">Имя <span id="sort-name" class="text-muted"></span></th>
-                        <th style="width: 40%;">Путь / Команда</th>
-                        <th class="cursor-pointer text-center" onclick="changeSort('cpu')" style="width: 10%;">CPU % <span id="sort-cpu" class="text-muted">▼</span></th>
-                        <th class="cursor-pointer text-center pe-4" onclick="changeSort('ram_mb')" style="width: 20%;">RAM <span id="sort-ram_mb" class="text-muted"></span></th>
+                        <th class="cursor-pointer" onclick="changeSort('name')" style="width: 15%;">Имя <span id="sort-name" class="text-muted"></span></th>
+                        <th style="width: 45%;">Путь / Команда</th>
+                        <th class="cursor-pointer text-center" onclick="changeSort('cpu')" style="width: 15%;">CPU % <span id="sort-cpu" class="text-muted">▼</span></th>
+                        <th class="cursor-pointer text-center pe-4" onclick="changeSort('ram_mb')" style="width: 15%;">RAM <span id="sort-ram_mb" class="text-muted"></span></th>
                     </tr>
                 </thead>
                 <tbody id="processList">
