@@ -26,12 +26,12 @@
 </div>
 
 <div class="sidebar" id="sidebar">
-    <!-- Сделали логотип кликабельным ссылкой на главную и выровняли влево (ps-3) -->
-    <a href="/" class="sidebar-header d-flex align-items-center gap-3 ps-3 text-decoration-none">
-        <img src="/static/zx_logo.svg" alt="Logo" class="sidebar-logo" style="width: 32px; height: 32px;">
-        <h4 class="mb-0 fw-bold text-dark">ZX Apps</h4>
+    <a href="/" class="sidebar-header d-flex align-items-center gap-3 ps-4 text-decoration-none border-bottom">
+        <!-- Логотип теперь идеально выровнен с иконками меню -->
+        <img src="/static/zx_logo.svg" alt="Logo" class="sidebar-logo" style="width: 28px; height: 28px; margin-left: 2px;">
+        <h4 class="mb-0 fw-bold text-dark" style="font-size: 1.25rem;">ZX Apps</h4>
     </a>
-    <div class="sidebar-nav">
+    <div class="sidebar-nav pt-3">
         <!-- Главная страница на первом месте -->
         <a href="/" class="nav-link {% if request.path == '/' or request.path == '/site_stats' %}active{% endif %}">
             <span class="material-symbols-outlined">public</span> Главная
