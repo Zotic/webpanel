@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <h2 class="fw-bold text-secondary mb-0">Сайт и Статистика</h2>
+</div>
+
+<!-- Верхние карточки статистики -->
+<div class="row row-cols-1 row-cols-md-2 g-4 mb-4">
+    <div class="col">
+        <div class="card border-0 shadow-sm h-100 bg-primary text-white">
+            <div class="card-body d-flex align-items-center justify-content-between py-4">
+                <div>
+                    <h6 class="fw-bold mb-1">Аптайм сервера</h6>
+                    <h3 class="fw-bold mb-0">{{ uptime }}</h3>
+                </div>
+                <span class="material-symbols-outlined" style="font-size: 48px; opacity: 0.8;">schedule</span>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card border-0 shadow-sm h-100 bg-info text-white">
+            <div class="card-body d-flex align-items-center justify-content-between py-4">
+                <div>
+                    <h6 class="fw-bold mb-1">Запросов к сайту (Nginx)</h6>
+                    <h3 class="fw-bold mb-0">{{ total_requests }}</h3>
+                </div>
+                <span class="material-symbols-outlined" style="font-size: 48px; opacity: 0.8;">ads_click</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Панель управления службами сайта -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white fw-bold py-3 border-bottom-0">Управление ядром</div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">Если сайт или VPN зависли, вы можете перезапустить их базовые службы прямо отсюда.</p>
+        <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-outline-dark d-flex align-items-center gap-1" onclick="restartCoreService('nginx')">
+                <span class="material-symbols-outlined fs-5">sync</span> Перезапуск Nginx
+            </button>
+            <button class="btn btn-outline-dark d-flex align-items-center gap-1" onclick="restartCoreService('xray')">
+                <span class="material-symbols-outlined fs-5">sync</span> Перезапуск Xray
+            </button>
+            <!-- Замените zxpanel.service на реальное имя вашей службы, если оно другое -->
+            <button class="btn btn-danger d-flex align-items-center gap-1" onclick="restartCoreService('zxpanel.service')">
+                <span class="material-symbols-outlined fs-5">warning</span> Перезапуск самой Панели
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Таблица подозрительной активности -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center">
+        <span class="fw-bold">Подозрительная активность (Fallbacks & Ошибки)</span>
+        <button class="btn btn-sm btn-primary shadow-sm" onclick="fetchAnalytics()">Обновить</button>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+            <table class="table align-middle mb-0 text-nowrap">
+                <thead class="table-light position-sticky top-0" style="z-index: 1;">
+                    <tr>
+                        <th class="ps-4">Время</th>
+                        <th>Служба</th>
+                        <th>Тип события</th>
+                        <th class="pe-4">Описание</th>
+                    </tr>
+                </thead>
+                <tbody id="analyticsTable">
+                    <tr><td colspan="4" class="text-center py-4 text-muted">Загрузка данных...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function restartCoreService(serviceName) {
+        if (!confirm(`Точно перезапустить ${serviceName}?`)) return;
+        
+        try {
+            // Используем уже существующий API для сервисов
+            const res = await fetch('/api/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bot_name: serviceName, action: 'restart', is_system: true })
+            });
+            if (res.status === 401) { location.reload(); return; }
+            const data = await res.json();
+            
+            if (data.success) {
+                alert(`${serviceName} успешно перезапущен!`);
+            } else {
+                alert(`Ошибка: ${data.error}`);
+            }
+        } catch (e) {
+            // Если перезапускаем саму панель, соединение разорвется - это нормально
+            if (serviceName === 'zxpanel.service') {
+                setTimeout(() => location.reload(), 3000);
+            } else {
+                alert("Сбой соединения.");
+            }
+        }
+    }
+
+    async function fetchAnalytics() {
+        const tbody = document.getElementById('analyticsTable');
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">Загрузка...</td></tr>';
+        
+        try {
+            const res = await fetch('/api/site_analytics');
+            if (res.status === 401) { location.reload(); return; }
+            const data = await res.json();
+            
+            if (data.success) {
+                tbody.innerHTML = '';
+                if (data.logs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">Подозрительной активности не найдено.</td></tr>';
+                    return;
+                }
+                
+                data.logs.forEach(log => {
+                    const tr = document.createElement('tr');
+                    tr.className = `table-${log.color}`;
+                    
+                    tr.innerHTML = `
+                        <td class="ps-4 text-muted small">${log.time}</td>
+                        <td class="fw-bold">${log.source}</td>
+                        <td><span class="badge bg-${log.color}">${log.type}</span></td>
+                        <td class="pe-4 text-dark font-monospace small" style="white-space: normal; word-break: break-word; max-width: 400px;">${log.message}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        } catch (e) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-danger">Ошибка загрузки данных</td></tr>';
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", fetchAnalytics);
+</script>
+{% endblock %}
