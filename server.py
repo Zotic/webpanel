@@ -404,20 +404,31 @@ def reverse_dns(ip):
     except: return None
 
 def get_recent_connections(skip_dns=False):
-    """Парсер логов Xray с сортировкой: СНАЧАЛА НОВЫЕ"""
+    """Парсер логов Xray. Вытаскивает IP, Цель и Имя пользователя (email)"""
     try:
         result = subprocess.run(['tail', '-100', '/var/log/xray/access.log'], capture_output=True, text=True)
         connections = []
         seen = set()
         
-        # ДОБАВЛЕНО reversed(...) - теперь читаем файл с конца (от новых к старым)
         for line in reversed(result.stdout.split('\n')):
             if not line.strip(): continue
             
+            # В новых версиях Xray с email лог выглядит так:
+            # 2026/03/02 10:30:15 192.168.1.5:54321 accepted tcp:8.8.8.8:443 [vless_tls] email: Zotic_Phone
+            
+            # 1. Извлекаем базовую информацию
             match = re.search(r'(\d{2}:\d{2}:\d{2}).*?(?:from\s+)?([a-fA-F0-9\.:]+):\d+\s+accepted\s+[a-zA-Z0-9]+:([a-zA-Z0-9\.\-]+):(\d+)\s+\[([^\]]+)\]', line)
+            
             if match:
-                time, client, dest_ip, port, route = match.groups()
-                key = f"{dest_ip}:{port}:{route}"
+                time_str, client_ip, dest_ip, port, route = match.groups()
+                
+                # 2. Пытаемся найти email (имя пользователя)
+                user = "-"
+                email_match = re.search(r'email:\s*([^\s]+)', line)
+                if email_match:
+                    user = email_match.group(1)
+                
+                key = f"{client_ip}:{dest_ip}:{port}:{route}"
                 if key in seen: continue
                 seen.add(key)
                 
@@ -427,11 +438,18 @@ def get_recent_connections(skip_dns=False):
                     domain = reverse_dns(dest_ip)
                     
                 connections.append({
-                    'time': time, 'client': client, 'dest': f"{dest_ip}:{port}",
-                    'domain': domain, 'route': route, 'route_class': 'direct' if route == 'direct' else 'vless'
+                    'time': time_str, 
+                    'client': client_ip,
+                    'user': user,  # <--- Добавили пользователя
+                    'dest': f"{dest_ip}:{port}",
+                    'domain': domain, 
+                    'route': route, 
+                    'route_class': 'direct' if route == 'direct' else 'vless'
                 })
         return connections[:30]
-    except: return []
+    except Exception as e:
+        print("Ошибка Xray парсера:", e)
+        return []
 
 def get_3proxy_connections():
     possible_paths = ['/var/log/3proxy.log', '/var/log/3proxy/3proxy.log', '/var/log/3proxy']
