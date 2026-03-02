@@ -5,19 +5,33 @@
     <h2 class="fw-bold text-secondary mb-0">Сайт и Статистика</h2>
 </div>
 
-<!-- Верхние карточки статистики -->
-<div class="row row-cols-1 row-cols-md-2 g-4 mb-4">
+<!-- Верхние карточки статистики (Теперь 3 колонки) -->
+<div class="row row-cols-1 row-cols-md-3 g-4 mb-4">
     <div class="col">
         <div class="card border-0 shadow-sm h-100 bg-primary text-white">
             <div class="card-body d-flex align-items-center justify-content-between py-4">
                 <div>
                     <h6 class="fw-bold mb-1">Аптайм сервера</h6>
-                    <h3 class="fw-bold mb-0">{{ uptime }}</h3>
+                    <h3 class="fw-bold mb-0">{{ server_uptime }}</h3>
                 </div>
-                <span class="material-symbols-outlined" style="font-size: 48px; opacity: 0.8;">schedule</span>
+                <span class="material-symbols-outlined" style="font-size: 48px; opacity: 0.8;">dns</span>
             </div>
         </div>
     </div>
+    
+    <!-- Новая карточка для Аптайма сайта -->
+    <div class="col">
+        <div class="card border-0 shadow-sm h-100 bg-success text-white">
+            <div class="card-body d-flex align-items-center justify-content-between py-4">
+                <div>
+                    <h6 class="fw-bold mb-1">Аптайм сайта (Панели)</h6>
+                    <h3 class="fw-bold mb-0">{{ app_uptime }}</h3>
+                </div>
+                <span class="material-symbols-outlined" style="font-size: 48px; opacity: 0.8;">timer</span>
+            </div>
+        </div>
+    </div>
+
     <div class="col">
         <div class="card border-0 shadow-sm h-100 bg-info text-white">
             <div class="card-body d-flex align-items-center justify-content-between py-4">
@@ -43,9 +57,9 @@
             <button class="btn btn-outline-dark d-flex align-items-center gap-1" onclick="restartCoreService('xray')">
                 <span class="material-symbols-outlined fs-5">sync</span> Перезапуск Xray
             </button>
-            <!-- Замените zxpanel.service на реальное имя вашей службы, если оно другое -->
-            <button class="btn btn-danger d-flex align-items-center gap-1" onclick="restartCoreService('zxpanel.service')">
-                <span class="material-symbols-outlined fs-5">warning</span> Перезапуск самой Панели
+            <!-- ИЗМЕНЕНО ИМЯ НА zxapps.service -->
+            <button class="btn btn-danger d-flex align-items-center gap-1" onclick="restartCoreService('zxapps.service')">
+                <span class="material-symbols-outlined fs-5">warning</span> Перезапуск Панели (Сайта)
             </button>
         </div>
     </div>
