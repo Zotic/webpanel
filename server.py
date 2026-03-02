@@ -699,21 +699,7 @@ def api_site_analytics():
                 elif status.startswith('2') or (status.startswith('3') and status != '301'):
                     final_logs.append({
                         "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "success",
-                        "type": "Посетитель", "desc": f"# 4. ДОБАВЛЯЕМ ПРЯМЫЕ ЗАПРОСЫ В NGINX (на порт 80)
-    for ip, reqs in nginx_logs.items():
-        if ip not in processed_nginx_ips:
-            for req in reqs:
-                status = req['status']
-                if status == '301' or status.startswith(('4', '5')):
-                    final_logs.append({
-                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "danger",
-                        "type": "Сканер / Бот", "desc": f"Прямой запрос по HTTP. Запрос: {req['request']} (Код: {status})"
-                    })
-                elif status.startswith('2') or (status.startswith('3') and status != '301'):
-                    final_logs.append({
-                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "success",
                         "type": "Посетитель", "desc": f"Прямой заход по HTTP. Запрос: {req['request']} (Код: {status})"
-                    }) заход по HTTP. Запрос: {req['request']} (Код: {status})"
                     })
 
     final_logs.sort(key=lambda x: x['time'], reverse=True)
