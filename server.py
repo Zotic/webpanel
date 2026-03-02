@@ -521,45 +521,76 @@ def get_dns_queries():
     except: return []
 
 def analyze_proxy_logs():
-    ip_to_users, target_to_users = {}, {}
-    def add_user(ip, user):
+    """Связывает IP с именами и определяет, кто к каким сайтам обращался (учитывает несколько юзеров на 1 IP)"""
+    ip_to_users = {}      # IP -> Множество (Set) юзеров
+    target_to_users = {}  # Сайт -> Множество (Set) юзеров
+    
+    def add_user_to_ip(ip, user):
         if user and user not in ('-', 'Unknown', 'unknown'):
-            if ip not in ip_to_users: ip_to_users[ip] = set()
+            if ip not in ip_to_users:
+                ip_to_users[ip] = set()
             ip_to_users[ip].add(user)
-            
+
     def add_target(target, client_ip, user):
         target_ip = target.split(':')[0]
-        if target_ip not in target_to_users: target_to_users[target_ip] = set()
-        if user and user not in ('-', 'Unknown', 'unknown'): target_to_users[target_ip].add(user)
-        else: target_to_users[target_ip].add(client_ip)
+        if target_ip not in target_to_users:
+            target_to_users[target_ip] = set()
+            
+        if user and user not in ('-', 'Unknown', 'unknown'):
+            target_to_users[target_ip].add(user)
+        else:
+            target_to_users[target_ip].add(client_ip)
 
+    # 1. Анализируем 3proxy
     try:
         for c in get_3proxy_connections():
-            client_ip, user = c['client'].split(':')[0], c['user']
-            add_user(client_ip, user)
-            if c['dest'] != 'ОШИБКА': add_target(c['dest'], client_ip, user)
-    except: pass
-    try:
-        for c in get_danted_connections():
-            client_ip, user = c['client'].split(':')[0], c['user']
-            add_user(client_ip, user)
-            if c['dest'] != 'unknown' and not str(c['dest']).startswith('Local:'): add_target(c['dest'], client_ip, user)
-    except: pass
-    try:
-        # ВАЖНО: skip_dns=True. Нам не нужно искать домены при анализе юзеров!
-        for c in get_recent_connections(skip_dns=True):
-            add_target(c['dest'], c['client'].split(':')[0], None)
+            client_ip = c['client'].split(':')[0]
+            user = c['user']
+            add_user_to_ip(client_ip, user)
+            if c['dest'] != 'ОШИБКА':
+                add_target(c['dest'], client_ip, user)
     except: pass
     
+    # 2. Анализируем Danted
+    try:
+        for c in get_danted_connections():
+            client_ip = c['client'].split(':')[0]
+            user = c['user']
+            add_user_to_ip(client_ip, user)
+            if c['dest'] != 'unknown' and not str(c['dest']).startswith('Local:'):
+                add_target(c['dest'], client_ip, user)
+    except: pass
+
+    # 3. ИЗМЕНЕНО: Анализируем Xray (VLESS)
+    try:
+        for c in get_recent_connections(skip_dns=True):
+            # В новых логах Xray у нас есть IP клиента и поле user (email)
+            client_ip = c['client'] # Мы уже очистили порт в функции get_recent_connections
+            user = c.get('user', '-')
+            
+            # Сохраняем имя пользователя для этого IP
+            add_user_to_ip(client_ip, user)
+            
+            # Связываем цель (сайт) с пользователем
+            add_target(c['dest'], client_ip, user)
+    except: pass
+    
+    # Финальная обработка: если в списках целей остался IP клиента, 
+    # а мы для него уже нашли имя в других логах - заменяем IP на Имя
     final_target_to_user = {}
     for target, userset in target_to_users.items():
         final_set = set()
         for u in userset:
             if u in ip_to_users:
-                for known_user in ip_to_users[u]: final_set.add(known_user)
-            else: final_set.add(u)
+                for known_user in ip_to_users[u]:
+                    final_set.add(known_user)
+            else:
+                final_set.add(u)
         final_target_to_user[target] = list(final_set)
+        
+    # Преобразуем словарь {IP: set("Zotic", "Ivan")} в {IP: "Zotic, Ivan"}
     final_ip_to_users = {ip: ", ".join(users) for ip, users in ip_to_users.items()}
+        
     return final_ip_to_users, final_target_to_user
 
 
