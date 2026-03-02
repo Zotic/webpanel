@@ -44,25 +44,23 @@
     </div>
 </div>
 
-<!-- Растягиваем карточку до конца экрана с помощью calc() -->
-<div class="card border-0 shadow-sm" style="height: calc(100vh - 130px); overflow: hidden;">
-    <div class="card-body p-0 h-100">
-        <div class="table-responsive h-100">
-            <table class="table align-middle mb-0" style="font-size: 0.9rem;">
-                <!-- Прилипающая шапка -->
-                <thead class="table-dark position-sticky top-0" style="z-index: 10;">
-                    <tr>
-                        <th class="ps-3" style="width: 120px;">Время</th>
-                        <th style="width: 100px;">Уровень</th>
-                        <th style="width: 180px;">Источник</th>
-                        <th class="pe-3">Сообщение</th>
-                    </tr>
-                </thead>
-                <tbody id="logsTableBody">
-                    <tr><td colspan="4" class="text-center py-5 text-muted">Загрузка логов...</td></tr>
-                </tbody>
-            </table>
-        </div>
+<!-- Растягиваем карточку до конца экрана с <div class="card border-0 shadow-sm" style="height: calc(100vh - 130px); overflow: hidden;">
+    <!-- ДОБАВЛЕН table-responsive -->
+    <div class="card-body p-0 h-100 table-responsive">
+        <!-- ДОБАВЛЕНО min-width: 800px; чтобы таблица не сжималась на телефоне -->
+        <table class="table align-middle mb-0" style="font-size: 0.9rem; min-width: 800px;">
+            <thead class="table-dark position-sticky top-0" style="z-index: 10;">
+                <tr>
+                    <th class="ps-3" style="width: 15%;">Время</th>
+                    <th style="width: 10%;">Уровень</th>
+                    <th style="width: 15%;">Источник</th>
+                    <th class="pe-3" style="width: 60%;">Сообщение</th>
+                </tr>
+            </thead>
+            <tbody id="logsTableBody">
+                <tr><td colspan="4" class="text-center py-5 text-muted">Загрузка логов...</td></tr>
+            </tbody>
+        </table>
     </div>
 </div>
 {% endblock %}
