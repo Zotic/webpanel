@@ -967,5 +967,91 @@ def api_set_speed_limit():
     sync_tc_rules() 
     return jsonify({"success": True})
 
+
+# ========================================
+# АНАЛИТИКА САЙТА (NGINX + XRAY FALLBACKS)
+# ========================================
+
+def get_site_uptime():
+    try:
+        with open('/proc/uptime', 'r') as f:
+            uptime_seconds = float(f.readline().split()[0])
+            m, s = divmod(int(uptime_seconds), 60)
+            h, m = divmod(m, 60)
+            d, h = divmod(h, 24)
+            return f"{d}д {h}ч {m}м"
+    except: return "Неизвестно"
+
+def get_nginx_stats():
+    """Считает общее кол-во запросов из логов Nginx"""
+    try:
+        if os.path.exists('/var/log/nginx/access.log'):
+            res = subprocess.run(['wc', '-l', '/var/log/nginx/access.log'], capture_output=True, text=True)
+            return res.stdout.split()[0]
+    except: pass
+    return "0"
+
+@app.route('/site_stats')
+@login_required
+def site_stats_page():
+    return render_template('site_stats.html', 
+                           uptime=get_site_uptime(),
+                           total_requests=get_nginx_stats())
+
+@app.route('/api/site_analytics', methods=['GET'])
+@login_required
+def api_site_analytics():
+    logs = []
+    
+    # 1. Ищем перенаправления на сайт (Fallback) в логах Xray
+    try:
+        res_xray = subprocess.run(['grep', 'fallback starts', '/var/log/xray/access.log'], capture_output=True, text=True)
+        # Берем последние 30 строк
+        for line in reversed(res_xray.stdout.split('\n')[-30:]):
+            if not line.strip(): continue
+            
+            # 2026/03/02 10:37:13 [Info] [12345] proxy/vless/inbound: fallback starts > ...
+            time_match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})', line)
+            time_str = time_match.group(1) if time_match else "Неизвестно"
+            
+            logs.append({
+                "time": time_str,
+                "source": "Xray Fallback",
+                "type": "Внимание",
+                "color": "warning",
+                "message": "Неудачная попытка VPN (несовпадение ALPN/TLS). Трафик перенаправлен на веб-сайт."
+            })
+    except: pass
+
+    # 2. Ищем интересные/подозрительные запросы в Nginx (404 ошибки или попытки сканирования)
+    try:
+        if os.path.exists('/var/log/nginx/access.log'):
+            res_nginx = subprocess.run(['tail', '-n', '200', '/var/log/nginx/access.log'], capture_output=True, text=True)
+            for line in reversed(res_nginx.stdout.split('\n')):
+                if not line.strip(): continue
+                
+                parts = line.split('"')
+                if len(parts) >= 3:
+                    ip_date = parts[0].strip() # 192.168.1.1 - - [02/Mar/2026:12:00:00 +0000]
+                    request_info = parts[1]    # GET /index.php HTTP/1.1
+                    status_code = parts[2].strip().split()[0] # 404
+                    
+                    ip_match = re.search(r'^([\d\.]+)', ip_date)
+                    ip = ip_match.group(1) if ip_match else "Unknown"
+                    
+                    # Фильтруем: выводим только ошибки 400, 403, 404, 500+
+                    if status_code.startswith(('4', '5')):
+                        logs.append({
+                            "time": ip_date.split('[')[-1].split(']')[0] if '[' in ip_date else "Неизвестно",
+                            "source": "Nginx",
+                            "type": f"Ошибка {status_code}",
+                            "color": "danger",
+                            "message": f"IP: {ip} пытался открыть: {request_info}"
+                        })
+    except: pass
+
+    # Берем топ-50 самых свежих событий
+    return jsonify({"success": True, "logs": logs[:50]})
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0',port=5000)
