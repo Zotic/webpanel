@@ -539,10 +539,10 @@ def analyze_proxy_logs():
     final_ip_to_users = {ip: ", ".join(users) for ip, users in ip_to_users.items()}
     return final_ip_to_users, final_target_to_user
 
+# ========================================
+# АНАЛИТИКА САЙТА (NGINX + XRAY FALLBACKS)
+# ========================================
 
-# ========================================
-# АНАЛИТИКА САЙТА (ДАШБОРД)
-# ========================================
 def format_uptime(seconds):
     m, s = divmod(int(seconds), 60)
     h, m = divmod(m, 60)
@@ -559,14 +559,45 @@ def get_site_uptime():
 def get_app_uptime():
     return format_uptime(time.time() - APP_START_TIME)
 
-def get_nginx_stats():
+def get_nginx_unique_stats():
+    """Считает уникальные IP и делит их на людей (код 200) и ботов (коды 301, 40x, 50x)"""
+    humans = set()
+    bots = set()
     try:
         if os.path.exists('/var/log/nginx/access.log'):
-            res = subprocess.run(['wc', '-l', '/var/log/nginx/access.log'], capture_output=True, text=True)
-            return res.stdout.split()[0]
+            # Читаем последние 5000 строк для надежной статистики
+            res = subprocess.run(['tail', '-n', '5000', '/var/log/nginx/access.log'], capture_output=True, text=True)
+            for line in res.stdout.split('\n'):
+                if not line.strip(): continue
+                parts = line.split('"')
+                if len(parts) >= 3:
+                    ip_date = parts[0].strip()
+                    status_code = parts[2].strip().split()[0]
+                    
+                    ip_match = re.search(r'^([\d\.]+)', ip_date)
+                    if ip_match:
+                        ip = ip_match.group(1)
+                        # Игнорируем локальные IP (чтобы панель не считала саму себя)
+                        if ip == '127.0.0.1': continue
+                        
+                        # Коды 200 (ОК) - это люди
+                        if status_code.startswith('2'):
+                            humans.add(ip)
+                        # Ошибки и 301 (Редирект/Сканеры) - это боты
+                        elif status_code.startswith(('301', '4', '5')):
+                            bots.add(ip)
     except: pass
-    return "0"
-
+    
+    # Если IP попал и в боты, и в люди (например, человек сначала словил 404, а потом зашел нормально)
+    # мы считаем его человеком
+    pure_bots = bots - humans
+    
+    return {
+        "total": len(humans) + len(pure_bots),
+        "humans": len(humans),
+        "bots": len(pure_bots)
+    }
+                           
 def parse_nginx_date(date_str):
     months = {'Jan':'01', 'Feb':'02', 'Mar':'03', 'Apr':'04', 'May':'05', 'Jun':'06', 
               'Jul':'07', 'Aug':'08', 'Sep':'09', 'Oct':'10', 'Nov':'11', 'Dec':'12'}
@@ -639,23 +670,51 @@ def api_site_analytics():
                 last_req = n_log[-1]
                 processed_nginx_ips.add(ip)
                 status = last_req['status']
-                if status.startswith('2') or status.startswith('3'):
-                    final_logs.append({"time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "success", "type": "Посетитель", "desc": f"Успешный вход на сайт. Запрос: {last_req['request']} (Код: {status})"})
-                else:
-                    final_logs.append({"time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "danger", "type": "Сканер / Бот", "desc": f"Попытка сканирования сайта. Запрос: {last_req['request']} (Код: {status})"})
+                if status.startswith('2') or (status.startswith('3') and status != '301'):
+                    final_logs.append({
+                        "time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "success",
+                        "type": "Посетитель", "desc": f"Успешный вход на сайт. Запрос: {last_req['request']} (Код: {status})"
+                    })
+                # Если 301, 400+, 500+ - это бот/сканер
+                elif status == '301' or status.startswith(('4', '5')):
+                    final_logs.append({
+                        "time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "danger",
+                        "type": "Сканер / Бот", "desc": f"Попытка сканирования сайта. Запрос: {last_req['request']} (Код: {status})"
+                    })
             else:
                 final_logs.append({"time": time_str, "ip": ip, "source": "Xray", "color": "warning", "type": "Fallback (Сброс)", "desc": f"SNI: {s['real_name']}. Трафик перенаправлен, но до Nginx не дошел."})
         elif s['error']:
             final_logs.append({"time": time_str, "ip": ip, "source": "Xray", "color": "danger", "type": "Сканер портов", "desc": f"Попытка простучать 443 порт. Ошибка: {s['error']}"})
             
+    # 4. ДОБАВЛЯЕМ ПРЯМЫЕ ЗАПРОСЫ В NGINX (на порт 80)
     for ip, reqs in nginx_logs.items():
         if ip not in processed_nginx_ips:
             for req in reqs:
                 status = req['status']
-                if status.startswith(('4', '5')):
-                    final_logs.append({"time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "danger", "type": "Сканер / Бот", "desc": f"Прямой запрос по HTTP. Запрос: {req['request']} (Код: {status})"})
-                elif status.startswith(('2', '3')):
-                    final_logs.append({"time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "success", "type": "Посетитель", "desc": f"Прямой заход по HTTP. Запрос: {req['request']} (Код: {status})"})
+                if status == '301' or status.startswith(('4', '5')):
+                    final_logs.append({
+                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "danger",
+                        "type": "Сканер / Бот", "desc": f"Прямой запрос по HTTP. Запрос: {req['request']} (Код: {status})"
+                    })
+                elif status.startswith('2') or (status.startswith('3') and status != '301'):
+                    final_logs.append({
+                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "success",
+                        "type": "Посетитель", "desc": f"# 4. ДОБАВЛЯЕМ ПРЯМЫЕ ЗАПРОСЫ В NGINX (на порт 80)
+    for ip, reqs in nginx_logs.items():
+        if ip not in processed_nginx_ips:
+            for req in reqs:
+                status = req['status']
+                if status == '301' or status.startswith(('4', '5')):
+                    final_logs.append({
+                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "danger",
+                        "type": "Сканер / Бот", "desc": f"Прямой запрос по HTTP. Запрос: {req['request']} (Код: {status})"
+                    })
+                elif status.startswith('2') or (status.startswith('3') and status != '301'):
+                    final_logs.append({
+                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "success",
+                        "type": "Посетитель", "desc": f"Прямой заход по HTTP. Запрос: {req['request']} (Код: {status})"
+                    }) заход по HTTP. Запрос: {req['request']} (Код: {status})"
+                    })
 
     final_logs.sort(key=lambda x: x['time'], reverse=True)
     return jsonify({"success": True, "logs": final_logs[:100]})
@@ -682,10 +741,13 @@ def logout():
 @app.route('/')
 @login_required
 def index():
+    stats = get_nginx_unique_stats()
     return render_template('site_stats.html', 
                            server_uptime=get_site_uptime(),
                            app_uptime=get_app_uptime(),
-                           total_requests=get_nginx_stats())
+                           total_ips=stats["total"],
+                           humans=stats["humans"],
+                           bots=stats["bots"])
 
 @app.route('/site_stats')
 @login_required
