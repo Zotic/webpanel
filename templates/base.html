@@ -31,6 +31,11 @@
         <h4 class="mb-0 fw-bold text-dark">ZX Panel</h4>
     </div>
     <div class="sidebar-nav">
+
+        <a href="/site_stats" class="nav-link {% if request.path == '/site_stats' %}active{% endif %}">
+            <span class="material-symbols-outlined">public</span> Сайт и Статистика
+        </a>
+
         <a href="/bots" class="nav-link {% if request.path == '/bots' %}active{% endif %}">
             <span class="material-symbols-outlined">smart_toy</span> Боты
         </a>
