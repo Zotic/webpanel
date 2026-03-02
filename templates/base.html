@@ -26,36 +26,31 @@
 </div>
 
 <div class="sidebar" id="sidebar">
-    <div class="sidebar-header d-flex align-items-center justify-content-center gap-2">
-        <img src="/static/zx_logo.svg" alt="Logo" class="sidebar-logo">
-        <h4 class="mb-0 fw-bold text-dark">ZX Panel</h4>
-    </div>
+    <!-- Сделали логотип кликабельным ссылкой на главную и выровняли влево (ps-3) -->
+    <a href="/" class="sidebar-header d-flex align-items-center gap-3 ps-3 text-decoration-none">
+        <img src="/static/zx_logo.svg" alt="Logo" class="sidebar-logo" style="width: 32px; height: 32px;">
+        <h4 class="mb-0 fw-bold text-dark">ZX Apps</h4>
+    </a>
     <div class="sidebar-nav">
-
-        <a href="/site_stats" class="nav-link {% if request.path == '/site_stats' %}active{% endif %}">
-            <span class="material-symbols-outlined">public</span> Сайт и Статистика
+        <!-- Главная страница на первом месте -->
+        <a href="/" class="nav-link {% if request.path == '/' or request.path == '/site_stats' %}active{% endif %}">
+            <span class="material-symbols-outlined">public</span> Главная
         </a>
-
         <a href="/bots" class="nav-link {% if request.path == '/bots' %}active{% endif %}">
             <span class="material-symbols-outlined">smart_toy</span> Боты
         </a>
-
         <a href="/monitor" class="nav-link {% if request.path == '/monitor' %}active{% endif %}">
             <span class="material-symbols-outlined">query_stats</span> Диспетчер задач
         </a>
-
         <a href="/logs" class="nav-link {% if request.path == '/logs' %}active{% endif %}">
-            <span class="material-symbols-outlined">receipt_long</span> Логи <!-- Изменили текст здесь -->
+            <span class="material-symbols-outlined">receipt_long</span> Логи
         </a>
-        
         <a href="/vpn" class="nav-link {% if request.path == '/vpn' %}active{% endif %}">
             <span class="material-symbols-outlined">vpn_lock</span> VPN
         </a>
-
         <a href="/vpn_users" class="nav-link {% if request.path == '/vpn_users' %}active{% endif %}">
             <span class="material-symbols-outlined">group</span> Подключения
         </a>
-
         <a href="/services" class="nav-link {% if request.path == '/services' %}active{% endif %}">
             <span class="material-symbols-outlined">settings_applications</span> Сервисы
         </a>
