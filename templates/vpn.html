@@ -74,16 +74,42 @@
 
 <div class="tab-content" id="vpnTabsContent">
     
-    <!-- ВКЛАДКА XRAY -->
-    <div class="tab-pane fade show active" id="tab-xray">
-        <div class="card border-0 shadow-sm"><div class="card-body p-0"><div class="table-responsive">
-            <table class="table align-middle mb-0 text-nowrap">
-                <thead class="table-light"><tr><th class="ps-4">Время</th><th>Клиент</th><th>Назначение</th><th class="pe-4 text-center">Маршрут</th></tr></thead>
-                <tbody>
-                    {% for conn in xray_connections %}<tr><td class="ps-4 text-muted small">{{ conn.time }}</td><td class="font-monospace text-primary">{{ conn.client }}</td><td><span class="font-monospace">{{ conn.dest }}</span>{% if conn.domain %}<br><small class="text-muted">→ {{ conn.domain }}</small>{% endif %}</td><td class="pe-4 text-center"><span class="badge bg-{% if conn.route_class == 'direct' %}success{% else %}primary{% endif %}">{{ conn.route }}</span></td></tr>{% else %}<tr><td colspan="4" class="text-center py-4 text-muted">Нет соединений Xray</td></tr>{% endfor %}
-                </tbody>
-            </table>
-        </div></div></div>
+<!-- ВКЛАДКА XRAY -->
+    <div class="tab-pane fade show active" id="tab-xray" role="tabpanel">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white fw-bold py-3 border-bottom-0">Соединения Xray</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0 text-nowrap">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Время</th>
+                                <th>Пользователь</th> <!-- НОВОЕ -->
+                                <th>IP Клиента</th>
+                                <th>Назначение</th>
+                                <th class="pe-4 text-center">Маршрут</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for conn in xray_connections %}
+                            <tr>
+                                <td class="ps-4 text-muted small">{{ conn.time }}</td>
+                                <td class="fw-bold text-dark">{{ conn.user }}</td> <!-- НОВОЕ -->
+                                <td class="font-monospace text-primary">{{ conn.client }}</td>
+                                <td>
+                                    <span class="font-monospace">{{ conn.dest }}</span>
+                                    {% if conn.domain %}<br><small class="text-muted">→ {{ conn.domain }}</small>{% endif %}
+                                </td>
+                                <td class="pe-4 text-center">
+                                    <span class="badge bg-{% if conn.route_class == 'direct' %}success{% else %}primary{% endif %}">{{ conn.route }}</span>
+                                </td>
+                            </tr>
+                            {% else %}<tr><td colspan="5" class="text-center py-4 text-muted">Нет недавних соединений Xray</td></tr>{% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- ВКЛАДКА OUTLINE -->
