@@ -596,7 +596,6 @@ def analyze_proxy_logs():
 
 
 
-
 # ========================================
 # МАРШРУТЫ (Сайт)
 # ========================================
@@ -606,7 +605,8 @@ def login():
     if request.method == 'POST':
         if request.form.get('username') == ADMIN_USERNAME and request.form.get('password') == ADMIN_PASSWORD:
             session['logged_in'] = True
-            return redirect(url_for('bots'))
+            # ПЕРЕНАПРАВЛЯЕМ НА ГЛАВНУЮ
+            return redirect(url_for('index'))
         error = "Неверный логин или пароль"
     return render_template('login.html', error=error)
 
@@ -618,7 +618,17 @@ def logout():
 @app.route('/')
 @login_required
 def index():
-    return redirect(url_for('bots'))
+    # Главная страница теперь - это статистика (Дашборд)
+    return render_template('site_stats.html', 
+                           server_uptime=get_site_uptime(),
+                           app_uptime=get_app_uptime(),
+                           total_requests=get_nginx_stats())
+
+# Маршрут /site_stats оставляем для совместимости меню
+@app.route('/site_stats')
+@login_required
+def site_stats_page():
+    return redirect(url_for('index'))
 
 @app.route('/bots')
 @login_required
@@ -648,19 +658,18 @@ def vpn():
                            proxy_status=run_command("systemctl is-active 3proxy") == "active",
                            danted_status=run_command("systemctl is-active danted") == "active",
                            outline_status=(get_outline_status() == "active"),
-                           mtproto_status=(get_mtproto_status() == "active"), # ДОБАВЛЕНО
+                           mtproto_status=(get_mtproto_status() == "active"),
                            xray_connections=get_recent_connections(),
                            proxy_connections=get_3proxy_connections(),
                            danted_connections=get_danted_connections(),
                            outline_metrics=get_outline_metrics(),
-                           mtproto_stats=get_mtproto_stats(), # ДОБАВЛЕНО
+                           mtproto_stats=get_mtproto_stats(),
                            dns_queries=get_dns_queries())
 
 @app.route('/vpn_users')
 @login_required
 def vpn_users_page():
     return render_template('vpn_users.html')
-
 
 # ========================================
 # МАРШРУТЫ (API)
@@ -1012,60 +1021,102 @@ def site_stats_page():
                            app_uptime=get_app_uptime(), # Передаем аптайм сайта
                            total_requests=get_nginx_stats())
 
+# ========================================
+# УМНЫЙ АНАЛИЗАТОР ЛОГОВ (XRAY + NGINX)
+# ========================================
 @app.route('/api/site_analytics', methods=['GET'])
 @login_required
 def api_site_analytics():
     logs = []
     
-    # 1. Ищем перенаправления на сайт (Fallback) в логах Xray
+    # 1. Читаем логи Nginx и сохраняем последние запросы по IP
+    nginx_requests = {}
+    try:
+        if os.path.exists('/var/log/nginx/access.log'):
+            res_nginx = subprocess.run(['tail', '-n', '500', '/var/log/nginx/access.log'], capture_output=True, text=True)
+            for line in res_nginx.stdout.split('\n'):
+                if not line.strip(): continue
+                parts = line.split('"')
+                if len(parts) >= 3:
+                    ip_date = parts[0].strip()
+                    request_info = parts[1]
+                    status_code = parts[2].strip().split()[0]
+                    
+                    ip_match = re.search(r'^([\d\.]+)', ip_date)
+                    if ip_match:
+                        ip = ip_match.group(1)
+                        # Сохраняем последний запрос для этого IP
+                        nginx_requests[ip] = {
+                            "request": request_info,
+                            "status": status_code
+                        }
+    except: pass
+
+    # 2. Читаем логи Xray и ищем Fallback'и
     try:
         res_xray = subprocess.run(['grep', 'fallback starts', '/var/log/xray/access.log'], capture_output=True, text=True)
-        # Берем последние 30 строк
-        for line in reversed(res_xray.stdout.split('\n')[-30:]):
+        # Берем последние 40 перенаправлений
+        for line in reversed(res_xray.stdout.split('\n')[-40:]):
             if not line.strip(): continue
             
-            # 2026/03/02 10:37:13 [Info] [12345] proxy/vless/inbound: fallback starts > ...
+            # Парсим строку вида:
+            # 2026/03/02 10:37:13 [Info] [123456] proxy/vless/inbound: fallback starts > ...
             time_match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})', line)
             time_str = time_match.group(1) if time_match else "Неизвестно"
             
+            # В старых/разных версиях Xray IP может быть не указан в строке fallback.
+            # Если IP нет в строке fallback, мы помечаем это просто как "Посетитель"
+            ip_match = re.search(r'([\d\.]+):\d+\s+accepted', line) 
+            ip = ip_match.group(1) if ip_match else None
+            
+            # Пробуем связать перенаправление Xray с результатом в Nginx
+            nginx_data = nginx_requests.get(ip) if ip else None
+            
+            if nginx_data:
+                # Если Nginx ответил 200 (ОК)
+                if nginx_data['status'].startswith('2'):
+                    color = "success"
+                    type_str = "Успешный вход"
+                    msg = f"Обычный посетитель ({ip}) перенаправлен на сайт. Запрос: {nginx_data['request']} (Код: {nginx_data['status']})"
+                # Если Nginx ответил 404, 403 или 400 (Сканирование/ошибка)
+                elif nginx_data['status'].startswith(('4', '5')):
+                    color = "danger"
+                    type_str = "Подозрительно"
+                    msg = f"Xray перекинул IP {ip} в Nginx, но запрос провалился! Запрос: {nginx_data['request']} (Код: {nginx_data['status']})"
+                else:
+                    color = "info"
+                    type_str = "Перенаправление"
+                    msg = f"Трафик от {ip} ушел на сайт. Ответ сервера: {nginx_data['status']}"
+            else:
+                # Если Nginx не зафиксировал этот IP (например, соединение разорвалось)
+                color = "warning"
+                type_str = "Fallback"
+                ip_text = f" IP: {ip}" if ip else ""
+                msg = f"Не удалось установить VPN-соединение{ip_text}. Трафик переброшен на сайт (Nginx)."
+
             logs.append({
                 "time": time_str,
-                "source": "Xray Fallback",
-                "type": "Внимание",
-                "color": "warning",
-                "message": "Неудачная попытка VPN (несовпадение ALPN/TLS). Трафик перенаправлен на веб-сайт."
+                "source": "Xray -> Nginx",
+                "type": type_str,
+                "color": color,
+                "message": msg
             })
     except: pass
 
-    # 2. Ищем интересные/подозрительные запросы в Nginx (404 ошибки или попытки сканирования)
-    try:
-        if os.path.exists('/var/log/nginx/access.log'):
-            res_nginx = subprocess.run(['tail', '-n', '200', '/var/log/nginx/access.log'], capture_output=True, text=True)
-            for line in reversed(res_nginx.stdout.split('\n')):
-                if not line.strip(): continue
-                
-                parts = line.split('"')
-                if len(parts) >= 3:
-                    ip_date = parts[0].strip() # 192.168.1.1 - - [02/Mar/2026:12:00:00 +0000]
-                    request_info = parts[1]    # GET /index.php HTTP/1.1
-                    status_code = parts[2].strip().split()[0] # 404
-                    
-                    ip_match = re.search(r'^([\d\.]+)', ip_date)
-                    ip = ip_match.group(1) if ip_match else "Unknown"
-                    
-                    # Фильтруем: выводим только ошибки 400, 403, 404, 500+
-                    if status_code.startswith(('4', '5')):
-                        logs.append({
-                            "time": ip_date.split('[')[-1].split(']')[0] if '[' in ip_date else "Неизвестно",
-                            "source": "Nginx",
-                            "type": f"Ошибка {status_code}",
-                            "color": "danger",
-                            "message": f"IP: {ip} пытался открыть: {request_info}"
-                        })
-    except: pass
+    # Если Fallback'ов нет, выводим хотя бы чистые ошибки Nginx
+    if not logs and nginx_requests:
+        for ip, data in nginx_requests.items():
+            if data['status'].startswith(('4', '5')):
+                logs.append({
+                    "time": "Недавно",
+                    "source": "Nginx",
+                    "type": f"Ошибка {data['status']}",
+                    "color": "danger",
+                    "message": f"IP: {ip} пытался открыть: {data['request']}"
+                })
 
-    # Берем топ-50 самых свежих событий
     return jsonify({"success": True, "logs": logs[:50]})
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0',port=5000)
