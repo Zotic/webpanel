@@ -17,7 +17,7 @@ app.secret_key = os.getenv('PANEL_SECRET_KEY', 'fallback_secret_key_123')
 ADMIN_USERNAME = os.getenv('PANEL_ADMIN_USER', 'admin')
 ADMIN_PASSWORD = os.getenv('PANEL_ADMIN_PASS', 'password')
 
-# === НАСТРОЙКИ ===
+# === НАСТРОЙКИ ПАНЕЛИ ===
 SERVICE_PREFIX = "flaskbot_"
 SYSTEMD_DIR = "/etc/systemd/system"
 DEFAULT_DIR = "/root/Bots"
@@ -25,12 +25,12 @@ BOTS_ORDER_FILE = "bots_order.json"
 LIMITS_FILE = "ip_limits.json"
 CUSTOM_NAMES_FILE = "custom_names.json"
 
-# === ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И КЭШ ===
 APP_START_TIME = time.time()
+
+# Глобальные переменные для кэша и мониторинга
 last_net_io = None
 last_net_time = 0
 proc_cache = {}
-
 _proxy_pids_cache = set()
 _proxy_pids_time = 0
 _outline_cache = ({}, {})
@@ -60,45 +60,44 @@ def run_command(cmd):
     except subprocess.CalledProcessError as e:
         return e.stderr.strip()
 
-def format_uptime(seconds):
-    """Форматирует секунды в дни, часы и минуты"""
-    m, s = divmod(int(seconds), 60)
-    h, m = divmod(m, 60)
-    d, h = divmod(h, 24)
-    return f"{d}д {h}ч {m}м"
 
 # ========================================
-# УПРАВЛЕНИЕ СКОРОСТЬЮ (Traffic Control) И ИМЕНАМИ
+# УПРАВЛЕНИЕ ИМЕНАМИ И СКОРОСТЬЮ (Traffic Control)
 # ========================================
-def get_limits():
-    if os.path.exists(LIMITS_FILE):
-        try:
-            with open(LIMITS_FILE, 'r') as f: return json.load(f)
-        except: pass
-    return {}
-
-def save_limits(limits):
-    with open(LIMITS_FILE, 'w') as f: json.dump(limits, f)
-
 def get_custom_names():
     if os.path.exists(CUSTOM_NAMES_FILE):
         try:
-            with open(CUSTOM_NAMES_FILE, 'r') as f: return json.load(f)
+            with open(CUSTOM_NAMES_FILE, 'r') as f:
+                return json.load(f)
         except: pass
     return {}
 
 def save_custom_names(names):
-    with open(CUSTOM_NAMES_FILE, 'w') as f: json.dump(names, f)
+    with open(CUSTOM_NAMES_FILE, 'w') as f:
+        json.dump(names, f)
+
+def get_limits():
+    if os.path.exists(LIMITS_FILE):
+        try:
+            with open(LIMITS_FILE, 'r') as f:
+                return json.load(f)
+        except: pass
+    return {}
+
+def save_limits(limits):
+    with open(LIMITS_FILE, 'w') as f:
+        json.dump(limits, f)
 
 def get_main_interface():
     try:
         out = run_command("ip route get 8.8.8.8")
         match = re.search(r'dev\s+([^\s]+)', out)
         return match.group(1) if match else "eth0"
-    except: return "eth0"
+    except:
+        return "eth0"
 
 def sync_tc_rules():
-    """Применяет лимиты скорости к ядру Linux"""
+    """Синхронизирует правила Linux TC с нашим файлом"""
     iface = get_main_interface()
     limits = get_limits()
     run_command(f"tc qdisc del dev {iface} root")
@@ -113,36 +112,44 @@ def sync_tc_rules():
 
 sync_tc_rules()
 
+
 # ========================================
 # ФУНКЦИИ ДЛЯ БОТОВ И СЕРВИСОВ
 # ========================================
 def get_saved_order():
     if os.path.exists(BOTS_ORDER_FILE):
         try:
-            with open(BOTS_ORDER_FILE, 'r') as f: return json.load(f)
+            with open(BOTS_ORDER_FILE, 'r') as f:
+                return json.load(f)
         except: pass
     return []
 
 def save_bots_order(order_list):
-    with open(BOTS_ORDER_FILE, 'w') as f: json.dump(order_list, f)
+    with open(BOTS_ORDER_FILE, 'w') as f:
+        json.dump(order_list, f)
 
 def get_exec_path(service_name, extract_python=False):
     try:
         res = subprocess.run(['systemctl', 'show', '-p', 'ExecStart', service_name], capture_output=True, text=True)
         path = ""
         match = re.search(r'argv\[\]=(.*?)\s+;', res.stdout)
-        if match: path = match.group(1).strip()
+        if match:
+            path = match.group(1).strip()
         else:
             match_path = re.search(r'path=(.*?)\s+;', res.stdout)
-            if match_path: path = match_path.group(1).strip()
+            if match_path:
+                path = match_path.group(1).strip()
                 
         if path:
-            is_python, python_path = False, ""
+            is_python = False
+            python_path = ""
             if extract_python:
                 parts = path.split()
                 if parts and 'python' in parts[0].lower():
-                    is_python, python_path = True, parts[0]
-                    if len(parts) > 1: path = " ".join(parts[1:])
+                    is_python = True
+                    python_path = parts[0]
+                    if len(parts) > 1:
+                        path = " ".join(parts[1:])
             return path, is_python, python_path
     except: pass
     return "Путь неизвестен", False, ""
@@ -171,13 +178,15 @@ def get_bots():
 
 def get_all_services():
     try:
+        # Сверхбыстрый сбор системных сервисов
         res = subprocess.run(['systemctl', 'list-units', '--type=service', '--all', '--no-pager', '--no-legend'], capture_output=True, text=True)
         service_names = [line.split()[0] for line in res.stdout.split('\n') if line.strip() and line.split()[0].endswith('.service')]
         if not service_names: return []
 
         cmd = ['systemctl', 'show', '-p', 'Id,ActiveState,ExecStart'] + service_names
         res2 = subprocess.run(cmd, capture_output=True, text=True)
-        services, current_svc = [], {}
+        services = []
+        current_svc = {}
         lines = res2.stdout.split('\n')
         lines.append('')
         
@@ -195,37 +204,20 @@ def get_all_services():
                     services.append({
                         "name": current_svc['Id'], "service": current_svc['Id'],
                         "active": (current_svc.get('ActiveState') == 'active'), "path": clean_path,
-                        "logs": "Нажмите кнопку (📄) для загрузки."
+                        "logs": "Нажмите кнопку обновления логов (📄) для загрузки."
                     })
                 current_svc = {}
             elif '=' in line:
                 key, val = line.split('=', 1)
                 current_svc[key] = val
         return services
-    except: return []
+    except Exception as e:
+        print(f"Ошибка получения сервисов: {e}")
+        return []
+
 
 # ========================================
-# АНАЛИТИКА САЙТА (NGINX + XRAY)
-# ========================================
-def get_site_uptime():
-    try:
-        with open('/proc/uptime', 'r') as f:
-            return format_uptime(float(f.readline().split()[0]))
-    except: return "Неизвестно"
-
-def get_app_uptime():
-    return format_uptime(time.time() - APP_START_TIME)
-
-def get_nginx_stats():
-    try:
-        if os.path.exists('/var/log/nginx/access.log'):
-            res = subprocess.run(['wc', '-l', '/var/log/nginx/access.log'], capture_output=True, text=True)
-            return res.stdout.split()[0]
-    except: pass
-    return "0"
-
-# ========================================
-# ФУНКЦИИ ДЛЯ VPN / ПРОКСИ
+# ФУНКЦИИ ДЛЯ VPN / XRAY / OUTLINE / ПРОКСИ
 # ========================================
 def get_outline_status():
     try:
@@ -233,30 +225,9 @@ def get_outline_status():
         return "active" if "Up" in res.stdout else "inactive"
     except: return "unknown"
 
-def get_mtproto_status():
-    try:
-        res = subprocess.run(['docker', 'ps', '--filter', 'name=mtproto-proxy', '--format', '{{.Status}}'], capture_output=True, text=True)
-        return "active" if "Up" in res.stdout else "inactive"
-    except: return "unknown"
-
-def get_mtproto_stats():
-    stats = {"uptime": "0", "active_connections": "0", "total_connections": "0", "version": "Неизвестно"}
-    try:
-        res = subprocess.run(['docker', 'exec', 'mtproto-proxy', 'curl', '-s', 'http://localhost:2398/stats'], capture_output=True, text=True)
-        for line in res.stdout.split('\n'):
-            parts = line.split('\t')
-            if len(parts) >= 2:
-                if parts[0] == 'uptime': stats['uptime'] = parts[1]
-                elif parts[0] == 'active_connections': stats['active_connections'] = parts[1]
-                elif parts[0] == 'total_connections': stats['total_connections'] = parts[1]
-                elif parts[0] == 'version': stats['version'] = parts[1]
-    except: pass
-    try: stats['uptime_formatted'] = format_uptime(int(stats['uptime']))
-    except: stats['uptime_formatted'] = "0д 0ч 0м"
-    return stats
-
 def get_outline_metrics():
-    data, keys_info = [], {}
+    data = []
+    keys_info = {}
     config_path = '/opt/outline/persisted-state/shadowbox_config.json'
     try:
         if os.path.exists(config_path):
@@ -264,7 +235,8 @@ def get_outline_metrics():
                 config = json.load(f)
                 keys_list = config.get('accessKeys', config.get('keys', []))
                 for k in keys_list:
-                    kid, name = str(k.get('id')), k.get('name')
+                    kid = str(k.get('id'))
+                    name = k.get('name')
                     keys_info[kid] = name if name else f"Без имени (ID: {kid})"
     except: pass
 
@@ -292,10 +264,40 @@ def get_outline_metrics():
 
     for kid, bytes_total in metrics_dict.items():
         name = keys_info.get(kid, f"Неизвестный ключ (ID: {kid})")
-        usage = f"{(bytes_total / 1024**3):.2f} GB" if bytes_total > 1024**3 else f"{(bytes_total / 1024**2):.2f} MB"
+        if bytes_total > 1024**3: usage = f"{(bytes_total / 1024**3):.2f} GB"
+        else: usage = f"{(bytes_total / 1024**2):.2f} MB"
         data.append({'id': kid, 'name': name, 'usage': usage, 'raw_bytes': bytes_total})
     data.sort(key=lambda x: x['raw_bytes'], reverse=True)
     return data
+
+def get_mtproto_status():
+    try:
+        res = subprocess.run(['docker', 'ps', '--filter', 'name=mtproto-proxy', '--format', '{{.Status}}'], capture_output=True, text=True)
+        return "active" if "Up" in res.stdout else "inactive"
+    except: return "unknown"
+
+def get_mtproto_stats():
+    stats = {"uptime": "0", "active_connections": "0", "total_connections": "0", "version": "Неизвестно"}
+    try:
+        res = subprocess.run(['docker', 'exec', 'mtproto-proxy', 'curl', '-s', 'http://localhost:2398/stats'], capture_output=True, text=True)
+        for line in res.stdout.split('\n'):
+            parts = line.split('\t')
+            if len(parts) >= 2:
+                if parts[0] == 'uptime': stats['uptime'] = parts[1]
+                elif parts[0] == 'active_connections': stats['active_connections'] = parts[1]
+                elif parts[0] == 'total_connections': stats['total_connections'] = parts[1]
+                elif parts[0] == 'version': stats['version'] = parts[1]
+    except: pass
+    
+    try:
+        secs = int(stats['uptime'])
+        m, s = divmod(secs, 60)
+        h, m = divmod(m, 60)
+        d, h = divmod(h, 24)
+        stats['uptime_formatted'] = f"{d}д {h}ч {m}м"
+    except:
+        stats['uptime_formatted'] = "0д 0ч 0м"
+    return stats
 
 def get_proxy_pids():
     """Кэширует список PID процессов на 15 секунд"""
@@ -316,7 +318,9 @@ def get_proxy_pids():
 def get_outline_connections():
     """Кэширует запрос к Docker на 3 секунды"""
     global _outline_cache, _outline_time
-    if time.time() - _outline_time < 3: return _outline_cache
+    if time.time() - _outline_time < 3:
+        return _outline_cache
+
     inbound, outbound = {}, {}
     container_name = "shadowbox"
     try:
@@ -324,6 +328,7 @@ def get_outline_connections():
         if 'shadowbox' not in res.stdout:
             res2 = subprocess.run(['docker', 'ps', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
             if res2.stdout.strip(): container_name = res2.stdout.strip().split('\n')[0]
+            
         net_res = subprocess.run(['docker', 'exec', container_name, 'netstat', '-tun'], capture_output=True, text=True)
         for line in net_res.stdout.split('\n'):
             line = line.strip()
@@ -342,6 +347,7 @@ def get_outline_connections():
                         else: inbound[f_ip] = inbound.get(f_ip, 0) + 1
                     except: pass
     except: pass
+    
     _outline_cache = (inbound, outbound)
     _outline_time = time.time()
     return _outline_cache
@@ -363,16 +369,20 @@ def get_active_vpn_users():
 
     for conn in psutil.net_connections(kind='inet'):
         if conn.pid in proxy_pids and conn.raddr:
-            remote_ip, local_ip = conn.raddr.ip, conn.laddr.ip
+            remote_ip = conn.raddr.ip
+            local_ip = conn.laddr.ip
             if remote_ip in local_ips or remote_ip.startswith('127.') or remote_ip.startswith('::1'): continue
             if remote_ip.startswith('172.') and local_ip.startswith('172.'): continue
             
-            if conn.laddr.port in listening_ports: inbound_ips[remote_ip] = inbound_ips.get(remote_ip, 0) + 1
-            else: outbound_ips[remote_ip] = outbound_ips.get(remote_ip, 0) + 1
+            if conn.laddr.port in listening_ports:
+                inbound_ips[remote_ip] = inbound_ips.get(remote_ip, 0) + 1
+            else:
+                outbound_ips[remote_ip] = outbound_ips.get(remote_ip, 0) + 1
 
     out_inbound, out_outbound = get_outline_connections()
     for ip, count in out_inbound.items(): inbound_ips[ip] = inbound_ips.get(ip, 0) + count
     for ip, count in out_outbound.items(): outbound_ips[ip] = outbound_ips.get(ip, 0) + count
+
     return inbound_ips, outbound_ips
 
 @lru_cache(maxsize=2000)
@@ -385,14 +395,17 @@ def reverse_dns(ip):
     except: return None
 
 def get_recent_connections(skip_dns=False):
+    """Парсер логов Xray с сортировкой: СНАЧАЛА НОВЫЕ"""
     try:
         result = subprocess.run(['tail', '-100', '/var/log/xray/access.log'], capture_output=True, text=True)
-        connections, seen = [], set()
+        connections = []
+        seen = set()
         for line in reversed(result.stdout.split('\n')):
             if not line.strip(): continue
             match = re.search(r'(\d{2}:\d{2}:\d{2}).*?(?:from\s+)?([a-fA-F0-9\.:]+):\d+\s+accepted\s+[a-zA-Z0-9]+:([a-zA-Z0-9\.\-]+):(\d+)\s+\[([^\]]+)\]', line)
             if match:
                 time_str, client_ip, dest_ip, port, route = match.groups()
+                
                 user = "-"
                 email_match = re.search(r'email:\s*([^\s]+)', line)
                 if email_match: user = email_match.group(1)
@@ -400,8 +413,16 @@ def get_recent_connections(skip_dns=False):
                 key = f"{client_ip}:{dest_ip}:{port}:{route}"
                 if key in seen: continue
                 seen.add(key)
-                domain = dest_ip if (skip_dns or dest_ip.replace('.', '').isdigit() == False) else reverse_dns(dest_ip)
-                connections.append({'time': time_str, 'client': client_ip, 'user': user, 'dest': f"{dest_ip}:{port}", 'domain': domain, 'route': route, 'route_class': 'direct' if route == 'direct' else 'vless'})
+                
+                if skip_dns or dest_ip.replace('.', '').isdigit() == False:
+                    domain = dest_ip
+                else:
+                    domain = reverse_dns(dest_ip)
+                    
+                connections.append({
+                    'time': time_str, 'client': client_ip, 'user': user, 'dest': f"{dest_ip}:{port}",
+                    'domain': domain, 'route': route, 'route_class': 'direct' if route == 'direct' else 'vless'
+                })
         return connections[:30]
     except: return []
 
@@ -423,7 +444,10 @@ def get_3proxy_connections():
                 if 'Accepting_connections' in event: continue
                 if event.startswith('CONNECT_'): event = 'CONNECT'
                 elif event.startswith('UNKNOWN_'): event = 'UNKNOWN'
-                connections.append({'time': time_str, 'user': user if user != '-' else 'Unknown', 'client': parts[4], 'dest': parts[5], 'status': event})
+                connections.append({
+                    'time': time_str, 'user': user if user != '-' else 'Unknown',
+                    'client': parts[4], 'dest': parts[5], 'status': event
+                })
         return connections[:50]
     except Exception as e: return [{"time": "-", "user": "-", "client": "-", "dest": "ОШИБКА", "status": str(e)}]
 
@@ -474,11 +498,10 @@ def get_dns_queries():
 
 def analyze_proxy_logs():
     ip_to_users, target_to_users = {}, {}
-    def add_user(ip, user):
+    def add_user_to_ip(ip, user):
         if user and user not in ('-', 'Unknown', 'unknown'):
             if ip not in ip_to_users: ip_to_users[ip] = set()
             ip_to_users[ip].add(user)
-            
     def add_target(target, client_ip, user):
         target_ip = target.split(':')[0]
         if target_ip not in target_to_users: target_to_users[target_ip] = set()
@@ -488,20 +511,20 @@ def analyze_proxy_logs():
     try:
         for c in get_3proxy_connections():
             client_ip, user = c['client'].split(':')[0], c['user']
-            add_user(client_ip, user)
+            add_user_to_ip(client_ip, user)
             if c['dest'] != 'ОШИБКА': add_target(c['dest'], client_ip, user)
     except: pass
     try:
         for c in get_danted_connections():
             client_ip, user = c['client'].split(':')[0], c['user']
-            add_user(client_ip, user)
+            add_user_to_ip(client_ip, user)
             if c['dest'] != 'unknown' and not str(c['dest']).startswith('Local:'): add_target(c['dest'], client_ip, user)
     except: pass
     try:
         for c in get_recent_connections(skip_dns=True):
-            client_ip = c['client'].split(':')[0]
+            client_ip = c['client']
             user = c.get('user', '-')
-            add_user(client_ip, user)
+            add_user_to_ip(client_ip, user)
             add_target(c['dest'], client_ip, user)
     except: pass
     
@@ -515,6 +538,128 @@ def analyze_proxy_logs():
         final_target_to_user[target] = list(final_set)
     final_ip_to_users = {ip: ", ".join(users) for ip, users in ip_to_users.items()}
     return final_ip_to_users, final_target_to_user
+
+
+# ========================================
+# АНАЛИТИКА САЙТА (ДАШБОРД)
+# ========================================
+def format_uptime(seconds):
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    d, h = divmod(h, 24)
+    return f"{d}д {h}ч {m}м"
+
+def get_site_uptime():
+    try:
+        with open('/proc/uptime', 'r') as f:
+            uptime_seconds = float(f.readline().split()[0])
+            return format_uptime(uptime_seconds)
+    except: return "Неизвестно"
+
+def get_app_uptime():
+    return format_uptime(time.time() - APP_START_TIME)
+
+def get_nginx_stats():
+    try:
+        if os.path.exists('/var/log/nginx/access.log'):
+            res = subprocess.run(['wc', '-l', '/var/log/nginx/access.log'], capture_output=True, text=True)
+            return res.stdout.split()[0]
+    except: pass
+    return "0"
+
+def parse_nginx_date(date_str):
+    months = {'Jan':'01', 'Feb':'02', 'Mar':'03', 'Apr':'04', 'May':'05', 'Jun':'06', 
+              'Jul':'07', 'Aug':'08', 'Sep':'09', 'Oct':'10', 'Nov':'11', 'Dec':'12'}
+    try:
+        parts = date_str.split('/')
+        day = parts[0]
+        month = months[parts[1]]
+        year_time = parts[2].split(':')
+        year = year_time[0]
+        time = ":".join(year_time[1:])
+        return f"{year}/{month}/{day} {time}"
+    except:
+        return date_str
+
+@app.route('/api/site_analytics', methods=['GET'])
+@login_required
+def api_site_analytics():
+    nginx_logs = {}
+    try:
+        if os.path.exists('/var/log/nginx/access.log'):
+            res_nginx = subprocess.run(['tail', '-n', '1000', '/var/log/nginx/access.log'], capture_output=True, text=True)
+            for line in res_nginx.stdout.split('\n'):
+                if not line.strip(): continue
+                parts = line.split('"')
+                if len(parts) >= 3:
+                    ip_date = parts[0].strip()
+                    request_info = parts[1]
+                    status_code = parts[2].strip().split()[0]
+                    ip_match = re.search(r'^([\d\.]+)', ip_date)
+                    date_match = re.search(r'\[(.*?) \+', ip_date)
+                    if ip_match and date_match:
+                        ip = ip_match.group(1)
+                        n_date = parse_nginx_date(date_match.group(1))
+                        if ip not in nginx_logs: nginx_logs[ip] = []
+                        nginx_logs[ip].append({"time": n_date, "request": request_info, "status": status_code})
+    except: pass
+
+    xray_sessions = {}
+    try:
+        res_xray = subprocess.run(['journalctl', '-u', 'xray', '-n', '2000', '--no-pager'], capture_output=True, text=True)
+        for line in res_xray.stdout.split('\n'):
+            if not line.strip(): continue
+            match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\.\d+\s+\[.*?\]\s+\[(\d+)\]\s+(.*)', line)
+            if match:
+                time_str, conn_id, msg = match.groups()
+                if conn_id not in xray_sessions:
+                    xray_sessions[conn_id] = {"time": time_str, "ip": None, "is_fallback": False, "real_name": "", "error": None, "is_vpn": True}
+                session = xray_sessions[conn_id]
+                if 'fallback starts' in msg:
+                    session['is_fallback'] = True
+                    session['is_vpn'] = False
+                elif 'realName =' in msg:
+                    session['real_name'] = msg.split('=')[-1].strip()
+                elif 'not look like a TLS handshake' in msg or 'invalid request version' in msg:
+                    session['error'] = "Неизвестный протокол (Не TLS)"
+                    session['is_vpn'] = False
+                ip_match = re.search(r'->([\d\.]+):\d+', msg)
+                if ip_match: session['ip'] = ip_match.group(1)
+    except: pass
+
+    final_logs = []
+    processed_nginx_ips = set()
+
+    for conn_id, s in xray_sessions.items():
+        ip = s['ip'] or "Неизвестный IP"
+        time_str = s['time']
+        if s['is_fallback']:
+            n_log = nginx_logs.get(ip)
+            if n_log:
+                last_req = n_log[-1]
+                processed_nginx_ips.add(ip)
+                status = last_req['status']
+                if status.startswith('2') or status.startswith('3'):
+                    final_logs.append({"time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "success", "type": "Посетитель", "desc": f"Успешный вход на сайт. Запрос: {last_req['request']} (Код: {status})"})
+                else:
+                    final_logs.append({"time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "danger", "type": "Сканер / Бот", "desc": f"Попытка сканирования сайта. Запрос: {last_req['request']} (Код: {status})"})
+            else:
+                final_logs.append({"time": time_str, "ip": ip, "source": "Xray", "color": "warning", "type": "Fallback (Сброс)", "desc": f"SNI: {s['real_name']}. Трафик перенаправлен, но до Nginx не дошел."})
+        elif s['error']:
+            final_logs.append({"time": time_str, "ip": ip, "source": "Xray", "color": "danger", "type": "Сканер портов", "desc": f"Попытка простучать 443 порт. Ошибка: {s['error']}"})
+            
+    for ip, reqs in nginx_logs.items():
+        if ip not in processed_nginx_ips:
+            for req in reqs:
+                status = req['status']
+                if status.startswith(('4', '5')):
+                    final_logs.append({"time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "danger", "type": "Сканер / Бот", "desc": f"Прямой запрос по HTTP. Запрос: {req['request']} (Код: {status})"})
+                elif status.startswith(('2', '3')):
+                    final_logs.append({"time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "success", "type": "Посетитель", "desc": f"Прямой заход по HTTP. Запрос: {req['request']} (Код: {status})"})
+
+    final_logs.sort(key=lambda x: x['time'], reverse=True)
+    return jsonify({"success": True, "logs": final_logs[:100]})
+
 
 # ========================================
 # МАРШРУТЫ (Сайт)
@@ -537,7 +682,10 @@ def logout():
 @app.route('/')
 @login_required
 def index():
-    return render_template('site_stats.html', server_uptime=get_site_uptime(), app_uptime=get_app_uptime(), total_requests=get_nginx_stats())
+    return render_template('site_stats.html', 
+                           server_uptime=get_site_uptime(),
+                           app_uptime=get_app_uptime(),
+                           total_requests=get_nginx_stats())
 
 @app.route('/site_stats')
 @login_required
@@ -585,6 +733,7 @@ def vpn():
 def vpn_users_page():
     return render_template('vpn_users.html')
 
+
 # ========================================
 # МАРШРУТЫ (API)
 # ========================================
@@ -624,22 +773,26 @@ def update_order():
 @app.route('/api/action', methods=['POST'])
 @login_required
 def bot_action():
-    bot_name, action, is_sys = request.json.get('bot_name'), request.json.get('action'), request.json.get('is_system', False)
-    svc = bot_name if is_sys else f"{SERVICE_PREFIX}{bot_name}.service"
+    bot_name, action = request.json.get('bot_name'), request.json.get('action')
+    is_system = request.json.get('is_system', False)
+    svc = bot_name if is_system else f"{SERVICE_PREFIX}{bot_name}.service"
     
-    if action == "status_only": return jsonify({"success": True, "active": (run_command(f"systemctl is-active {svc}") == "active")})
+    if action == "status_only":
+        return jsonify({"success": True, "active": (run_command(f"systemctl is-active {svc}") == "active")})
+        
     if action == "restart": run_command(f"systemctl restart {svc}")
     elif action == "start": run_command(f"systemctl start {svc}")
     elif action == "stop": run_command(f"systemctl stop {svc}")
     elif action == "delete":
-        if is_sys: return jsonify({"success": False, "error": "Удаление системных служб запрещено."})
+        if is_system: return jsonify({"success": False, "error": "Удаление системных служб запрещено."})
         run_command(f"systemctl stop {svc} && systemctl disable {svc}")
         os.remove(os.path.join(SYSTEMD_DIR, svc))
         run_command("systemctl daemon-reload")
         return jsonify({"success": True})
         
     is_active = (run_command(f"systemctl is-active {svc}") == "active")
-    logs = run_command(f"journalctl -u {svc} -n {100 if action == 'full_logs' else 15} --no-pager --output=cat")
+    n = 100 if action == "full_logs" else 15
+    logs = run_command(f"journalctl -u {svc} -n {n} --no-pager --output=cat")
     return jsonify({"success": True, "active": is_active, "logs": clean_logs(logs)})
 
 @app.route('/api/system_stats', methods=['GET'])
@@ -650,7 +803,6 @@ def api_system_stats():
     cpu_cores = psutil.cpu_count(logical=True)
     try: load1, load5, load15 = os.getloadavg()
     except: load1 = load5 = load15 = 0
-    
     mem, swap, disk = psutil.virtual_memory(), psutil.swap_memory(), psutil.disk_usage('/')
     net_io, current_time = psutil.net_io_counters(), time.time()
     upload_speed, download_speed = 0, 0
@@ -661,13 +813,15 @@ def api_system_stats():
             download_speed = ((net_io.bytes_recv - last_net_io.bytes_recv) * 8) / time_diff
     last_net_io, last_net_time = net_io, current_time
     
-    stats = {"cpu": {"percent": cpu_percent, "cores": cpu_cores, "load_avg": f"{round(load1, 2)} / {round(load5, 2)} / {round(load15, 2)}"},
-             "ram": {"percent": mem.percent, "used": mem.used, "total": mem.total},
-             "swap": {"percent": swap.percent, "used": swap.used, "total": swap.total},
-             "disk": {"percent": disk.percent, "used": disk.used, "total": disk.total},
-             "network": {"upload": upload_speed, "download": download_speed}}
-    
-    processes, current_pids = [], set()
+    stats = {
+        "cpu": {"percent": cpu_percent, "cores": cpu_cores, "load_avg": f"{round(load1, 2)} / {round(load5, 2)} / {round(load15, 2)}"},
+        "ram": {"percent": mem.percent, "used": mem.used, "total": mem.total},
+        "swap": {"percent": swap.percent, "used": swap.used, "total": swap.total},
+        "disk": {"percent": disk.percent, "used": disk.used, "total": disk.total},
+        "network": {"upload": upload_speed, "download": download_speed}
+    }
+    processes = []
+    current_pids = set()
     for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'memory_percent', 'memory_info']):
         try:
             pid = proc.info['pid']
@@ -681,11 +835,13 @@ def api_system_stats():
                 if cpu_cores > 0: cpu_usage = cpu_usage / cpu_cores
 
             cmd = proc.info.get('cmdline')
+            path = " ".join(cmd) if cmd else proc.info.get('name', '')
             ram_mb = proc.info['memory_info'].rss / (1024 * 1024) if proc.info.get('memory_info') else 0
-            processes.append({"pid": pid, "name": proc.info['name'], "path": " ".join(cmd) if cmd else proc.info.get('name', ''), 
-                              "cpu": round(cpu_usage, 1), "ram_percent": round(proc.info['memory_percent'] or 0.0, 1), "ram_mb": round(ram_mb, 1)})
+            processes.append({
+                "pid": pid, "name": proc.info['name'], "path": path, 
+                "cpu": round(cpu_usage, 1), "ram_percent": round(proc.info['memory_percent'] or 0.0, 1), "ram_mb": round(ram_mb, 1)
+            })
         except: pass
-    
     proc_cache = {pid: proc for pid, proc in proc_cache.items() if pid in current_pids}
     processes.sort(key=lambda x: x['cpu'], reverse=True)
     return jsonify({"success": True, "stats": stats, "processes": processes[:150]})
@@ -730,52 +886,6 @@ def api_system_logs():
         return jsonify({"success": True, "logs": logs})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
 
-@app.route('/api/site_analytics', methods=['GET'])
-@login_required
-def api_site_analytics():
-    logs = []
-    nginx_requests = {}
-    try:
-        if os.path.exists('/var/log/nginx/access.log'):
-            res_nginx = subprocess.run(['tail', '-n', '500', '/var/log/nginx/access.log'], capture_output=True, text=True)
-            for line in res_nginx.stdout.split('\n'):
-                if not line.strip(): continue
-                parts = line.split('"')
-                if len(parts) >= 3:
-                    ip_match = re.search(r'^([\d\.]+)', parts[0].strip())
-                    if ip_match: nginx_requests[ip_match.group(1)] = {"request": parts[1], "status": parts[2].strip().split()[0]}
-    except: pass
-
-    try:
-        res_xray = subprocess.run(['grep', 'fallback starts', '/var/log/xray/access.log'], capture_output=True, text=True)
-        for line in reversed(res_xray.stdout.split('\n')[-40:]):
-            if not line.strip(): continue
-            time_match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})', line)
-            time_str = time_match.group(1) if time_match else "Неизвестно"
-            ip_match = re.search(r'([\d\.]+):\d+\s+accepted', line) 
-            ip = ip_match.group(1) if ip_match else None
-            nginx_data = nginx_requests.get(ip) if ip else None
-            
-            if nginx_data:
-                if nginx_data['status'].startswith('2'):
-                    color, type_str, msg = "success", "Успешный вход", f"Обычный посетитель ({ip}) перенаправлен на сайт. Запрос: {nginx_data['request']} (Код: {nginx_data['status']})"
-                elif nginx_data['status'].startswith(('4', '5')):
-                    color, type_str, msg = "danger", "Подозрительно", f"Xray перекинул IP {ip} в Nginx, но запрос провалился! Запрос: {nginx_data['request']} (Код: {nginx_data['status']})"
-                else:
-                    color, type_str, msg = "info", "Перенаправление", f"Трафик от {ip} ушел на сайт. Ответ сервера: {nginx_data['status']}"
-            else:
-                ip_text = f" IP: {ip}" if ip else ""
-                color, type_str, msg = "warning", "Fallback", f"Не удалось установить VPN-соединение{ip_text}. Трафик переброшен на сайт (Nginx)."
-
-            logs.append({"time": time_str, "source": "Xray -> Nginx", "type": type_str, "color": color, "message": msg})
-    except: pass
-
-    if not logs and nginx_requests:
-        for ip, data in nginx_requests.items():
-            if data['status'].startswith(('4', '5')):
-                logs.append({"time": "Недавно", "source": "Nginx", "type": f"Ошибка {data['status']}", "color": "danger", "message": f"IP: {ip} пытался открыть: {data['request']}"})
-    return jsonify({"success": True, "logs": logs[:50]})
-
 @app.route('/api/outline/reset', methods=['POST'])
 @login_required
 def reset_outline_stats():
@@ -792,9 +902,11 @@ def reset_outline_stats():
 @app.route('/api/vpn/action', methods=['POST'])
 @login_required
 def api_vpn_action():
-    service, action = request.json.get('service'), request.json.get('action') 
+    service = request.json.get('service')
+    action = request.json.get('action') 
     try:
-        if service in ['xray', '3proxy', 'danted']: run_command(f"systemctl {action} {service}")
+        if service in ['xray', '3proxy', 'danted']:
+            run_command(f"systemctl {action} {service}")
         elif service in ['outline', 'mtproto']:
             container = "shadowbox" if service == "outline" else "mtproto-proxy"
             if service == "outline":
@@ -802,7 +914,25 @@ def api_vpn_action():
                 if res.stdout.strip(): container = res.stdout.strip().split('\n')[0]
             run_command(f"docker {action} {container}")
         return jsonify({"success": True})
-    except Exception as e: return jsonify({"success": False, "error": str(e)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/ip_info/<ip>', methods=['GET'])
+@login_required
+def api_ip_info(ip):
+    try:
+        url = f"https://ipinfo.io/{ip}/json"
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Accept': 'application/json'
+        })
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read().decode())
+            if data.get('bogon'):
+                return jsonify({"success": False, "error": "Локальный IP адрес"})
+            return jsonify({"success": True, "data": data})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 @app.route('/api/vpn_users', methods=['GET'])
 @login_required
@@ -810,12 +940,15 @@ def api_vpn_users():
     inbound, outbound = get_active_vpn_users()
     limits = get_limits()
     known_users, target_to_user = analyze_proxy_logs()
-    custom_names = get_custom_names()
+    custom_names = get_custom_names() 
     
     inbound_list = []
     for ip in set(inbound.keys()).union(set(limits.keys())):
         username = custom_names.get(ip, known_users.get(ip, ""))
-        inbound_list.append({"ip": ip, "username": username, "connections": inbound.get(ip, 0), "limit": limits.get(ip, {}).get('speed', None)})
+        inbound_list.append({
+            "ip": ip, "username": username,
+            "connections": inbound.get(ip, 0), "limit": limits.get(ip, {}).get('speed', None)
+        })
     inbound_list.sort(key=lambda x: (x['connections'] > 0, x['connections']), reverse=True)
 
     outbound_list = []
@@ -823,11 +956,28 @@ def api_vpn_users():
         domain = reverse_dns(ip)
         users_list = target_to_user.get(ip, [])
         if not users_list and domain and domain in target_to_user: users_list = target_to_user[domain]
-        final_users = [custom_names.get(u, u) for u in users_list]
+        
+        final_users = []
+        for u in users_list:
+            final_users.append(custom_names.get(u, u))
+            
         outbound_list.append({"ip": ip, "domain": domain if domain else "", "connections": count, "users": ", ".join(final_users) if final_users else "Неизвестно"})
     outbound_list.sort(key=lambda x: x['connections'], reverse=True)
 
     return jsonify({"success": True, "inbound": inbound_list, "outbound": outbound_list})
+
+@app.route('/api/set_custom_name', methods=['POST'])
+@login_required
+def api_set_custom_name():
+    ip = request.json.get('ip')
+    name = request.json.get('name')
+    names = get_custom_names()
+    if not name or name.strip() == "":
+        if ip in names: del names[ip]
+    else:
+        names[ip] = name.strip()
+    save_custom_names(names)
+    return jsonify({"success": True})
 
 @app.route('/api/set_speed_limit', methods=['POST'])
 @login_required
@@ -846,188 +996,7 @@ def api_set_speed_limit():
     sync_tc_rules() 
     return jsonify({"success": True})
 
-@app.route('/api/set_custom_name', methods=['POST'])
-@login_required
-def api_set_custom_name():
-    ip, name = request.json.get('ip'), request.json.get('name')
-    names = get_custom_names()
-    if not name or name.strip() == "":
-        if ip in names: del names[ip]
-    else: names[ip] = name.strip()
-    save_custom_names(names)
-    return jsonify({"success": True})
-
-@app.route('/api/ip_info/<ip>', methods=['GET'])
-@login_required
-def ip_info(ip):
-    try:
-        req = urllib.request.Request(f"https://ipinfo.io/{ip}/json", headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Accept': 'application/json'})
-        with urllib.request.urlopen(req, timeout=3) as response:
-            data = json.loads(response.read().decode())
-            if data.get('bogon'): return jsonify({"success": False, "error": "Локальный IP адрес"})
-            return jsonify({"success": True, "data": data})
-    except Exception as e: return jsonify({"success": False, "error": str(e)})
-
-# ========================================
-# УМНЫЙ АНАЛИЗАТОР ЛОГОВ (XRAY + NGINX)
-# ========================================
-
-def parse_nginx_date(date_str):
-    """Конвертирует дату Nginx (02/Mar/2026:14:28:52) в формат Xray (2026/03/02 14:28:52)"""
-    months = {'Jan':'01', 'Feb':'02', 'Mar':'03', 'Apr':'04', 'May':'05', 'Jun':'06', 
-              'Jul':'07', 'Aug':'08', 'Sep':'09', 'Oct':'10', 'Nov':'11', 'Dec':'12'}
-    try:
-        parts = date_str.split('/')
-        day = parts[0]
-        month = months[parts[1]]
-        year_time = parts[2].split(':')
-        year = year_time[0]
-        time = ":".join(year_time[1:])
-        return f"{year}/{month}/{day} {time}"
-    except:
-        return date_str
-
-@app.route('/api/site_analytics', methods=['GET'])
-@login_required
-def api_site_analytics():
-    # 1. ЧИТАЕМ ЛОГИ NGINX
-    nginx_logs = {}
-    try:
-        if os.path.exists('/var/log/nginx/access.log'):
-            res_nginx = subprocess.run(['tail', '-n', '1000', '/var/log/nginx/access.log'], capture_output=True, text=True)
-            for line in res_nginx.stdout.split('\n'):
-                if not line.strip(): continue
-                parts = line.split('"')
-                if len(parts) >= 3:
-                    ip_date = parts[0].strip()
-                    request_info = parts[1]
-                    status_code = parts[2].strip().split()[0]
-                    
-                    ip_match = re.search(r'^([\d\.]+)', ip_date)
-                    date_match = re.search(r'\[(.*?) \+', ip_date)
-                    
-                    if ip_match and date_match:
-                        ip = ip_match.group(1)
-                        n_date = parse_nginx_date(date_match.group(1))
-                        
-                        if ip not in nginx_logs:
-                            nginx_logs[ip] = []
-                        nginx_logs[ip].append({
-                            "time": n_date,
-                            "request": request_info,
-                            "status": status_code
-                        })
-    except: pass
-
-    # 2. ЧИТАЕМ ЛОГИ XRAY ИЗ JOURNALCTL
-    xray_sessions = {}
-    try:
-        # Читаем последние 2000 строк из службы xray
-        res_xray = subprocess.run(['journalctl', '-u', 'xray', '-n', '2000', '--no-pager'], capture_output=True, text=True)
-        
-        for line in res_xray.stdout.split('\n'):
-            if not line.strip(): continue
-            
-            # Ищем структуру: 2026/03/02 14:28:52.166190 [Info] [2470971338] ...
-            match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\.\d+\s+\[.*?\]\s+\[(\d+)\]\s+(.*)', line)
-            if match:
-                time_str = match.group(1)
-                conn_id = match.group(2)
-                msg = match.group(3)
-                
-                if conn_id not in xray_sessions:
-                    xray_sessions[conn_id] = {
-                        "time": time_str, "ip": None, "is_fallback": False, 
-                        "real_name": "", "error": None, "is_vpn": True
-                    }
-                
-                session = xray_sessions[conn_id]
-                
-                if 'fallback starts' in msg:
-                    session['is_fallback'] = True
-                    session['is_vpn'] = False
-                elif 'realName =' in msg:
-                    session['real_name'] = msg.split('=')[-1].strip()
-                elif 'not look like a TLS handshake' in msg or 'invalid request version' in msg:
-                    session['error'] = "Неизвестный протокол (Не TLS)"
-                    session['is_vpn'] = False
-                # Пытаемся вытащить IP (он обычно пишется при закрытии соединения)
-                # пример: read tcp 45.85.117.150:443->185.12.59.118:58488
-                ip_match = re.search(r'->([\d\.]+):\d+', msg)
-                if ip_match:
-                    session['ip'] = ip_match.group(1)
-
-    except Exception as e: 
-        print("Xray journalctl error:", e)
-
-    # 3. АНАЛИЗИРУЕМ И СОБИРАЕМ ВМЕСТЕ
-    final_logs = []
-    processed_nginx_ips = set()
-
-    for conn_id, s in xray_sessions.items():
-        ip = s['ip'] or "Неизвестный IP"
-        time_str = s['time']
-        
-        # Если это Fallback (перенаправление на сайт)
-        if s['is_fallback']:
-            n_log = nginx_logs.get(ip)
-            if n_log:
-                # Берем последний запрос от этого IP
-                last_req = n_log[-1]
-                processed_nginx_ips.add(ip)
-                status = last_req['status']
-                
-                if status.startswith('2') or status.startswith('3'):
-                    final_logs.append({
-                        "time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "success",
-                        "type": "Посетитель", "desc": f"Успешный вход на сайт. Запрос: {last_req['request']} (Код: {status})"
-                    })
-                else:
-                    final_logs.append({
-                        "time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "danger",
-                        "type": "Сканер / Бот", "desc": f"Попытка сканирования сайта. Запрос: {last_req['request']} (Код: {status})"
-                    })
-            else:
-                final_logs.append({
-                    "time": time_str, "ip": ip, "source": "Xray", "color": "warning",
-                    "type": "Fallback (Сброс)", "desc": f"SNI: {s['real_name']}. Трафик перенаправлен, но до Nginx не дошел (разрыв соединения)."
-                })
-        
-        # Если это сканер портов, который даже не смог пройти TLS
-        elif s['error']:
-            final_logs.append({
-                "time": time_str, "ip": ip, "source": "Xray", "color": "danger",
-                "type": "Сканер портов", "desc": f"Попытка простучать 443 порт. Ошибка: {s['error']}"
-            })
-            
-        # Если ошибок нет и фолбэка нет, но IP есть - это нормальное VPN подключение
-        # (вы можете закомментировать этот блок, если не хотите видеть обычные VPN подключения здесь)
-        elif s['is_vpn'] and s['ip']:
-             final_logs.append({
-                 "time": time_str, "ip": ip, "source": "Xray (VLESS)", "color": "primary",
-                 "type": "VPN Подключение", "desc": "Успешное VPN-соединение. Трафик зашифрован."
-             })
-
-    # 4. ДОБАВЛЯЕМ ПРЯМЫЕ ЗАПРОСЫ В NGINX (на порт 80)
-    for ip, reqs in nginx_logs.items():
-        if ip not in processed_nginx_ips:
-            for req in reqs:
-                status = req['status']
-                if status.startswith(('4', '5')):
-                    final_logs.append({
-                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "danger",
-                        "type": "Сканер / Бот", "desc": f"Прямой запрос по HTTP. Запрос: {req['request']} (Код: {status})"
-                    })
-                elif status.startswith(('2', '3')):
-                    final_logs.append({
-                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "success",
-                        "type": "Посетитель", "desc": f"Прямой заход по HTTP. Запрос: {req['request']} (Код: {status})"
-                    })
-
-    # 5. Сортируем по времени (новые сверху)
-    final_logs.sort(key=lambda x: x['time'], reverse=True)
-
-    return jsonify({"success": True, "logs": final_logs[:100]}) # Отдаем 100 последних событий
-
 if __name__ == '__main__':
+    # Если вы используете Nginx + Gunicorn, эта строчка игнорируется.
+    # Она нужна только если вы запускаете скрипт вручную для тестов: python3 server.py
     app.run(host='0.0.0.0', port=5000)
