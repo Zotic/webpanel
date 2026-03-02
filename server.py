@@ -972,15 +972,28 @@ def api_set_speed_limit():
 # АНАЛИТИКА САЙТА (NGINX + XRAY FALLBACKS)
 # ========================================
 
+# Запоминаем время запуска самого Python скрипта (сайта/панели)
+APP_START_TIME = time.time()
+
+def format_uptime(seconds):
+    """Форматирует секунды в дни, часы и минуты"""
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    d, h = divmod(h, 24)
+    return f"{d}д {h}ч {m}м"
+
 def get_site_uptime():
+    """Аптайм самого сервера (железа)"""
     try:
         with open('/proc/uptime', 'r') as f:
             uptime_seconds = float(f.readline().split()[0])
-            m, s = divmod(int(uptime_seconds), 60)
-            h, m = divmod(m, 60)
-            d, h = divmod(h, 24)
-            return f"{d}д {h}ч {m}м"
+            return format_uptime(uptime_seconds)
     except: return "Неизвестно"
+
+def get_app_uptime():
+    """Аптайм текущего приложения (панели)"""
+    uptime_seconds = time.time() - APP_START_TIME
+    return format_uptime(uptime_seconds)
 
 def get_nginx_stats():
     """Считает общее кол-во запросов из логов Nginx"""
@@ -995,7 +1008,8 @@ def get_nginx_stats():
 @login_required
 def site_stats_page():
     return render_template('site_stats.html', 
-                           uptime=get_site_uptime(),
+                           server_uptime=get_site_uptime(),
+                           app_uptime=get_app_uptime(), # Передаем аптайм сайта
                            total_requests=get_nginx_stats())
 
 @app.route('/api/site_analytics', methods=['GET'])
