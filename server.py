@@ -868,5 +868,166 @@ def ip_info(ip):
             return jsonify({"success": True, "data": data})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
 
+# ========================================
+# УМНЫЙ АНАЛИЗАТОР ЛОГОВ (XRAY + NGINX)
+# ========================================
+
+def parse_nginx_date(date_str):
+    """Конвертирует дату Nginx (02/Mar/2026:14:28:52) в формат Xray (2026/03/02 14:28:52)"""
+    months = {'Jan':'01', 'Feb':'02', 'Mar':'03', 'Apr':'04', 'May':'05', 'Jun':'06', 
+              'Jul':'07', 'Aug':'08', 'Sep':'09', 'Oct':'10', 'Nov':'11', 'Dec':'12'}
+    try:
+        parts = date_str.split('/')
+        day = parts[0]
+        month = months[parts[1]]
+        year_time = parts[2].split(':')
+        year = year_time[0]
+        time = ":".join(year_time[1:])
+        return f"{year}/{month}/{day} {time}"
+    except:
+        return date_str
+
+@app.route('/api/site_analytics', methods=['GET'])
+@login_required
+def api_site_analytics():
+    # 1. ЧИТАЕМ ЛОГИ NGINX
+    nginx_logs = {}
+    try:
+        if os.path.exists('/var/log/nginx/access.log'):
+            res_nginx = subprocess.run(['tail', '-n', '1000', '/var/log/nginx/access.log'], capture_output=True, text=True)
+            for line in res_nginx.stdout.split('\n'):
+                if not line.strip(): continue
+                parts = line.split('"')
+                if len(parts) >= 3:
+                    ip_date = parts[0].strip()
+                    request_info = parts[1]
+                    status_code = parts[2].strip().split()[0]
+                    
+                    ip_match = re.search(r'^([\d\.]+)', ip_date)
+                    date_match = re.search(r'\[(.*?) \+', ip_date)
+                    
+                    if ip_match and date_match:
+                        ip = ip_match.group(1)
+                        n_date = parse_nginx_date(date_match.group(1))
+                        
+                        if ip not in nginx_logs:
+                            nginx_logs[ip] = []
+                        nginx_logs[ip].append({
+                            "time": n_date,
+                            "request": request_info,
+                            "status": status_code
+                        })
+    except: pass
+
+    # 2. ЧИТАЕМ ЛОГИ XRAY ИЗ JOURNALCTL
+    xray_sessions = {}
+    try:
+        # Читаем последние 2000 строк из службы xray
+        res_xray = subprocess.run(['journalctl', '-u', 'xray', '-n', '2000', '--no-pager'], capture_output=True, text=True)
+        
+        for line in res_xray.stdout.split('\n'):
+            if not line.strip(): continue
+            
+            # Ищем структуру: 2026/03/02 14:28:52.166190 [Info] [2470971338] ...
+            match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\.\d+\s+\[.*?\]\s+\[(\d+)\]\s+(.*)', line)
+            if match:
+                time_str = match.group(1)
+                conn_id = match.group(2)
+                msg = match.group(3)
+                
+                if conn_id not in xray_sessions:
+                    xray_sessions[conn_id] = {
+                        "time": time_str, "ip": None, "is_fallback": False, 
+                        "real_name": "", "error": None, "is_vpn": True
+                    }
+                
+                session = xray_sessions[conn_id]
+                
+                if 'fallback starts' in msg:
+                    session['is_fallback'] = True
+                    session['is_vpn'] = False
+                elif 'realName =' in msg:
+                    session['real_name'] = msg.split('=')[-1].strip()
+                elif 'not look like a TLS handshake' in msg or 'invalid request version' in msg:
+                    session['error'] = "Неизвестный протокол (Не TLS)"
+                    session['is_vpn'] = False
+                # Пытаемся вытащить IP (он обычно пишется при закрытии соединения)
+                # пример: read tcp 45.85.117.150:443->185.12.59.118:58488
+                ip_match = re.search(r'->([\d\.]+):\d+', msg)
+                if ip_match:
+                    session['ip'] = ip_match.group(1)
+
+    except Exception as e: 
+        print("Xray journalctl error:", e)
+
+    # 3. АНАЛИЗИРУЕМ И СОБИРАЕМ ВМЕСТЕ
+    final_logs = []
+    processed_nginx_ips = set()
+
+    for conn_id, s in xray_sessions.items():
+        ip = s['ip'] or "Неизвестный IP"
+        time_str = s['time']
+        
+        # Если это Fallback (перенаправление на сайт)
+        if s['is_fallback']:
+            n_log = nginx_logs.get(ip)
+            if n_log:
+                # Берем последний запрос от этого IP
+                last_req = n_log[-1]
+                processed_nginx_ips.add(ip)
+                status = last_req['status']
+                
+                if status.startswith('2') or status.startswith('3'):
+                    final_logs.append({
+                        "time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "success",
+                        "type": "Посетитель", "desc": f"Успешный вход на сайт. Запрос: {last_req['request']} (Код: {status})"
+                    })
+                else:
+                    final_logs.append({
+                        "time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "danger",
+                        "type": "Сканер / Бот", "desc": f"Попытка сканирования сайта. Запрос: {last_req['request']} (Код: {status})"
+                    })
+            else:
+                final_logs.append({
+                    "time": time_str, "ip": ip, "source": "Xray", "color": "warning",
+                    "type": "Fallback (Сброс)", "desc": f"SNI: {s['real_name']}. Трафик перенаправлен, но до Nginx не дошел (разрыв соединения)."
+                })
+        
+        # Если это сканер портов, который даже не смог пройти TLS
+        elif s['error']:
+            final_logs.append({
+                "time": time_str, "ip": ip, "source": "Xray", "color": "danger",
+                "type": "Сканер портов", "desc": f"Попытка простучать 443 порт. Ошибка: {s['error']}"
+            })
+            
+        # Если ошибок нет и фолбэка нет, но IP есть - это нормальное VPN подключение
+        # (вы можете закомментировать этот блок, если не хотите видеть обычные VPN подключения здесь)
+        elif s['is_vpn'] and s['ip']:
+             final_logs.append({
+                 "time": time_str, "ip": ip, "source": "Xray (VLESS)", "color": "primary",
+                 "type": "VPN Подключение", "desc": "Успешное VPN-соединение. Трафик зашифрован."
+             })
+
+    # 4. ДОБАВЛЯЕМ ПРЯМЫЕ ЗАПРОСЫ В NGINX (на порт 80)
+    for ip, reqs in nginx_logs.items():
+        if ip not in processed_nginx_ips:
+            for req in reqs:
+                status = req['status']
+                if status.startswith(('4', '5')):
+                    final_logs.append({
+                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "danger",
+                        "type": "Сканер / Бот", "desc": f"Прямой запрос по HTTP. Запрос: {req['request']} (Код: {status})"
+                    })
+                elif status.startswith(('2', '3')):
+                    final_logs.append({
+                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "success",
+                        "type": "Посетитель", "desc": f"Прямой заход по HTTP. Запрос: {req['request']} (Код: {status})"
+                    })
+
+    # 5. Сортируем по времени (новые сверху)
+    final_logs.sort(key=lambda x: x['time'], reverse=True)
+
+    return jsonify({"success": True, "logs": final_logs[:100]}) # Отдаем 100 последних событий
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
