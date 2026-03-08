@@ -12,12 +12,10 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 
 app = Flask(__name__)
 
-# Читаем данные из системных переменных.
 app.secret_key = os.getenv('PANEL_SECRET_KEY', 'fallback_secret_key_123') 
 ADMIN_USERNAME = os.getenv('PANEL_ADMIN_USER', 'admin')
 ADMIN_PASSWORD = os.getenv('PANEL_ADMIN_PASS', 'password')
 
-# === НАСТРОЙКИ ===
 SERVICE_PREFIX = "flaskbot_"
 SYSTEMD_DIR = "/etc/systemd/system"
 DEFAULT_DIR = "/root/Bots"
@@ -27,13 +25,11 @@ CUSTOM_NAMES_FILE = "custom_names.json"
 
 last_net_io = None
 last_net_time = 0
-
 ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
 def clean_logs(logs_str):
     return ansi_escape.sub('', logs_str)
 
-# === ДЕКОРАТОР АВТОРИЗАЦИИ ===
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -50,7 +46,6 @@ def run_command(cmd):
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         return e.stderr.strip()
-
 
 # ========================================
 # УПРАВЛЕНИЕ СКОРОСТЬЮ (Traffic Control)
@@ -182,7 +177,7 @@ def get_all_services():
                     services.append({
                         "name": current_svc['Id'], "service": current_svc['Id'],
                         "active": (current_svc.get('ActiveState') == 'active'), "path": clean_path,
-                        "logs": "Нажмите 📄 для загрузки."
+                        "logs": "Нажмите кнопку обновления логов (📄) для загрузки."
                     })
                 current_svc = {}
             elif '=' in line:
@@ -194,7 +189,7 @@ def get_all_services():
         return []
 
 # ========================================
-# ОПТИМИЗИРОВАННЫЙ БЛОК VPN ПОДКЛЮЧЕНИЙ
+# ФУНКЦИИ ДЛЯ VPN / XRAY / OUTLINE / ПРОКСИ
 # ========================================
 _proxy_pids_cache = set()
 _proxy_pids_time = 0
@@ -382,11 +377,11 @@ def get_dns_queries():
         for line in result.stdout.split('\n'):
             match = re.search(r'(\d{2}:\d{2}:\d{2}).*query\[(\w+)\] ([^\s]+) from ([\d.]+)', line)
             if match:
-                time, qtype, domain, client = match.groups()
+                time_str, qtype, domain, client = match.groups()
                 key = f"{domain}:{client}"
                 if key not in seen and not domain.startswith('in-addr.arpa'):
                     seen.add(key)
-                    queries.append({'time': time, 'client': client, 'domain': domain, 'type': qtype})
+                    queries.append({'time': time_str, 'client': client, 'domain': domain, 'type': qtype})
         return queries[:50]
     except: return []
 
@@ -537,8 +532,7 @@ def get_app_uptime():
     return format_uptime(time.time() - APP_START_TIME)
 
 def get_nginx_unique_stats():
-    humans = set()
-    bots = set()
+    humans, bots = set(), set()
     try:
         if os.path.exists('/var/log/nginx/access.log'):
             res = subprocess.run(['tail', '-n', '5000', '/var/log/nginx/access.log'], capture_output=True, text=True)
@@ -553,70 +547,57 @@ def get_nginx_unique_stats():
                         ip = ip_match.group(1)
                         if ip == '127.0.0.1': continue
                         if status_code.startswith('2'): humans.add(ip)
-                        elif status_code.startswith(('301', '4', '5')): bots.add(ip)
+                        elif status_code == '301' or status_code.startswith(('4', '5')): bots.add(ip)
     except: pass
     pure_bots = bots - humans
     return {"total": len(humans) + len(pure_bots), "humans": len(humans), "bots": len(pure_bots)}
 
-def parse_date(date_str, format_type):
-    """Приводит даты к формату ДД.ММ ЧЧ:ММ:СС"""
+def parse_nginx_date(date_str):
+    months = {'Jan':'01', 'Feb':'02', 'Mar':'03', 'Apr':'04', 'May':'05', 'Jun':'06', 'Jul':'07', 'Aug':'08', 'Sep':'09', 'Oct':'10', 'Nov':'11', 'Dec':'12'}
     try:
-        if format_type == 'nginx':
-            # 02/Mar/2026:14:28:52 -> 02.03 14:28:52
-            months = {'Jan':'01', 'Feb':'02', 'Mar':'03', 'Apr':'04', 'May':'05', 'Jun':'06', 
-                      'Jul':'07', 'Aug':'08', 'Sep':'09', 'Oct':'10', 'Nov':'11', 'Dec':'12'}
-            parts = date_str.split('/')
-            day = parts[0]
-            month = months[parts[1]]
-            time = parts[2].split(':', 1)[1]
-            return f"{day}.{month} {time}"
-        elif format_type == 'xray':
-            # 2026/03/02 14:28:52 -> 02.03 14:28:52
-            date, time = date_str.split()
-            _, m, d = date.split('/')
-            return f"{d}.{m} {time}"
-        elif format_type == 'ssh':
-            # Feb 28 14:28:52 -> 28.02 14:28:52 (примерно)
-            return date_str
+        parts = date_str.split('/')
+        day = parts[0]
+        month = months[parts[1]]
+        year_time = parts[2].split(':')
+        year = year_time[0]
+        time_part = ":".join(year_time[1:])
+        return f"{day}.{month}.{year} {time_part}"
     except: return date_str
 
+def parse_syslog_date(date_str):
+    try:
+        m = re.match(r'^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})', date_str)
+        if m:
+            d = datetime.strptime(f"{datetime.now().year} {m.group(1)}", "%Y %b %d %H:%M:%S")
+            return d.strftime("%d.%m.%Y %H:%M:%S")
+    except: pass
+    return date_str
 
 @app.route('/api/site_analytics', methods=['GET'])
 @login_required
 def api_site_analytics():
-    """Сверх-умный анализатор: Группирует логи Xray, Nginx, SSH и UFW по IP адресам"""
-    
-    # Хранилище всех событий по IP
-    # Формат: { "1.1.1.1": {"events": ["event1", "event2"], "last_time": "12:00", "source": "Nginx", "color": "danger", "type": "Бот"} }
+    """Умный агрегатор логов. Собирает все действия по IP адресу в единую картину."""
     analytics_by_ip = {}
 
-    def add_event(ip, time_str, source, evt_type, color, desc):
+    def add_event(ip, time_str, source, severity, msg):
         if ip not in analytics_by_ip:
-            analytics_by_ip[ip] = {
-                "events": [], "last_time": time_str, 
-                "source": set(), "type": set(), "color": color
-            }
+            analytics_by_ip[ip] = {"events": [], "sources": set(), "severity": 0, "last_time": time_str}
         
-        # Обновляем время на самое свежее
-        analytics_by_ip[ip]["last_time"] = time_str
-        analytics_by_ip[ip]["source"].add(source)
-        analytics_by_ip[ip]["type"].add(evt_type)
-        
-        # Цвет повышаем до самого "опасного" (danger > warning > info > success)
-        colors_weight = {"danger": 4, "warning": 3, "info": 2, "success": 1}
-        cur_weight = colors_weight.get(analytics_by_ip[ip]["color"], 0)
-        new_weight = colors_weight.get(color, 0)
-        if new_weight > cur_weight:
-            analytics_by_ip[ip]["color"] = color
+        if severity > analytics_by_ip[ip]["severity"]:
+            analytics_by_ip[ip]["severity"] = severity
             
-        # Добавляем само событие, если его еще нет (защита от дублей)
-        if desc not in analytics_by_ip[ip]["events"]:
-            analytics_by_ip[ip]["events"].append(desc)
+        analytics_by_ip[ip]["sources"].add(source)
+        # Оставляем только уникальные сообщения для каждого IP, чтобы не дублировать
+        if not any(e['msg'] == msg for e in analytics_by_ip[ip]["events"]):
+            analytics_by_ip[ip]["events"].append({"time": time_str, "msg": msg, "source": source})
+            
+        # Обновляем время последней активности
+        analytics_by_ip[ip]["last_time"] = time_str
 
-    # 1. Читаем Nginx (Веб-сервер)
+    # 1. NGINX
     try:
         if os.path.exists('/var/log/nginx/access.log'):
-            res_nginx = subprocess.run(['tail', '-n', '1000', '/var/log/nginx/access.log'], capture_output=True, text=True)
+            res_nginx = subprocess.run(['tail', '-n', '500', '/var/log/nginx/access.log'], capture_output=True, text=True)
             for line in res_nginx.stdout.split('\n'):
                 if not line.strip(): continue
                 parts = line.split('"')
@@ -630,126 +611,132 @@ def api_site_analytics():
                     
                     if ip_match and date_match:
                         ip = ip_match.group(1)
-                        if ip == '127.0.0.1': continue # Пропускаем локальные
+                        if ip == '127.0.0.1': continue
+                        time_str = parse_nginx_date(date_match.group(1))
                         
-                        time_str = parse_date(date_match.group(1), 'nginx')
+                        req_type = "POST" if request_info.startswith('POST') else "GET"
+                        desc = f"{req_type}-запрос к сайту: '{request_info}' (Ответ: {status_code})"
                         
-                        # Если это POST запрос, пытаемся вытащить тело (если оно логируется, обычно нет, но оставим задел)
-                        req_type = "HTTP"
-                        if request_info.startswith('POST'): req_type = "POST"
-                            
-                        desc = f"{req_type} запрос: {request_info} (Ответ: {status_code})"
-                        
+                        severity = 0
                         if status_code == '301' or status_code.startswith(('4', '5')):
-                            add_event(ip, time_str, "Nginx", "Сканер / Бот", "danger", desc)
-                        else:
-                            add_event(ip, time_str, "Nginx", "Посетитель", "success", desc)
+                            severity = 2
+                            
+                        add_event(ip, time_str, "Nginx", severity, desc)
     except: pass
 
-    # 2. Читаем Xray (Попытки сломать VPN)
+    # 2. XRAY (Из Access Log - успешные подключения)
     try:
-        res_xray = subprocess.run(['journalctl', '-u', 'xray', '-n', '1000', '--no-pager'], capture_output=True, text=True)
-        for line in res_xray.stdout.split('\n'):
+        res_xray_access = subprocess.run(['tail', '-n', '500', '/var/log/xray/access.log'], capture_output=True, text=True)
+        for line in res_xray_access.stdout.split('\n'):
             if not line.strip(): continue
-            match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\.\d+\s+\[.*?\]\s+\[\d+\]\s+(.*)', line)
+            match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}).*?(?:from\s+)?([a-fA-F0-9\.:]+):\d+\s+accepted\s+[a-zA-Z0-9]+:([a-zA-Z0-9\.\-]+):(\d+)', line)
             if match:
-                time_raw = match.group(1)
-                time_str = parse_date(time_raw, 'xray')
-                msg = match.group(2)
+                time_raw, client_ip, dest_ip, port = match.groups()
+                # 2026/03/08 12:07:47 -> 08.03.2026 12:07:47
+                date_part, time_part = time_raw.split()
+                y, m, d = date_part.split('/')
+                time_str = f"{d}.{m}.{y} {time_part}"
                 
-                # Пытаемся вытащить IP хакера
-                ip_match = re.search(r'->([\d\.]+):\d+', msg)
-                if ip_match:
-                    ip = ip_match.group(1)
-                    
-                    if 'invalid request version' in msg or 'not look like a TLS handshake' in msg:
-                        add_event(ip, time_str, "Xray", "Сканер портов", "danger", "Попытка простучать 443 порт (Не TLS трафик)")
-                    elif 'fallback starts' in msg:
-                        # Добавляем факт фоллбэка, только если Nginx еще не отметил этот IP как Бота
-                        add_event(ip, time_str, "Xray", "Редирект", "warning", "Трафик не распознан VPN. Переброшен на Nginx.")
+                # Достаем юзернейм если есть
+                user = ""
+                email_match = re.search(r'email:\s*([^\s]+)', line)
+                if email_match: user = f" (Пользователь: {email_match.group(1)})"
+                
+                # Если IP не состоит только из цифр, значит это домен. Резолвить не будем для экономии ресурсов
+                add_event(client_ip, time_str, "Xray", 0, f"Успешное VPN подключение к {dest_ip}:{port}{user}")
     except: pass
-    
-    # 3. Читаем UFW (Фаервол)
+
+    # 3. XRAY (Из Journalctl - Ошибки и Fallback)
     try:
-        res_ufw = subprocess.run(['grep', 'UFW BLOCK', '/var/log/kern.log', '/var/log/ufw.log'], capture_output=True, text=True)
-        # Берем только последние 200 блоков
-        for line in res_ufw.stdout.split('\n')[-200:]:
+        res_xray_journal = subprocess.run(['journalctl', '-u', 'xray', '-n', '500', '--no-pager'], capture_output=True, text=True)
+        # Так как IP пишется не везде, будем искать ошибки по цепочке. Но для простоты:
+        for line in res_xray_journal.stdout.split('\n'):
             if not line.strip(): continue
-            # Извлекаем IP (SRC=1.1.1.1) и Порт (DPT=443)
+            # Ищем IP в ошибках разрыва
+            ip_match = re.search(r'read tcp ([\d\.]+):443->([\d\.]+):\d+', line)
+            if ip_match:
+                client_ip = ip_match.group(2) # Направление Сервер -> Клиент (или наоборот, зависит от типа закрытия)
+                time_str = parse_syslog_date(line)
+                
+                if 'not look like a TLS handshake' in line or 'invalid request version' in line:
+                    add_event(client_ip, time_str, "Xray", 2, "Ошибка рукопожатия TLS (Попытка не-VPN запроса на 443 порт)")
+                elif 'fallback starts' in line:
+                    add_event(client_ip, time_str, "Xray", 1, "VPN-трафик не распознан. Сработал Fallback (перенаправление на Nginx)")
+    except: pass
+
+    # 4. UFW (Фаервол)
+    try:
+        # Читаем логи ядра (UFW пишет туда)
+        res_ufw = subprocess.run(['journalctl', '-k', '--grep=UFW BLOCK', '-n', '200', '--no-pager'], capture_output=True, text=True)
+        for line in res_ufw.stdout.split('\n'):
+            if not line.strip(): continue
             src_m = re.search(r'SRC=([\d\.]+)', line)
             dpt_m = re.search(r'DPT=(\d+)', line)
             proto_m = re.search(r'PROTO=(\w+)', line)
-            
-            # Извлекаем время (обычно в начале строки: Feb 28 12:00:00)
-            time_m = re.search(r'^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})', line)
             
             if src_m:
                 ip = src_m.group(1)
                 dpt = dpt_m.group(1) if dpt_m else "?"
                 proto = proto_m.group(1) if proto_m else "TCP"
-                time_str = time_m.group(1) if time_m else "Недавно"
+                time_str = parse_syslog_date(line)
                 
-                add_event(ip, time_str, "UFW (Фаервол)", "Блокировка", "danger", f"Заблокирована попытка входа по {proto} на закрытый порт {dpt}")
+                add_event(ip, time_str, "UFW", 2, f"Блокировка UFW: Попытка входа на закрытый порт {dpt} по протоколу {proto}")
     except: pass
 
-    # 4. Читаем SSH (Брутфорс паролей)
+    # 5. SSH (Брутфорс)
     try:
         res_ssh = subprocess.run(['tail', '-n', '500', '/var/log/auth.log'], capture_output=True, text=True)
         for line in res_ssh.stdout.split('\n'):
             if not line.strip(): continue
             if 'sshd' not in line: continue
             
-            # Извлекаем время
-            time_m = re.search(r'^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})', line)
-            time_str = time_m.group(1) if time_m else "Недавно"
+            time_str = parse_syslog_date(line)
             
-            # Ищем Failed password
             if 'Failed password' in line:
                 ip_m = re.search(r'from ([\d\.]+)', line)
                 user_m = re.search(r'for (?:invalid user )?([^\s]+) from', line)
                 if ip_m and user_m:
-                    add_event(ip_m.group(1), time_str, "SSH", "Брутфорс", "danger", f"Неудачный подбор пароля для пользователя: '{user_m.group(1)}'")
+                    add_event(ip_m.group(1), time_str, "SSH", 2, f"Брутфорс SSH: Неудачный пароль для пользователя '{user_m.group(1)}'")
             
-            # Ищем Connection closed by invalid user
-            elif 'Connection closed by invalid user' in line:
-                ip_m = re.search(r'user [^\s]+ ([\d\.]+)', line)
-                user_m = re.search(r'user ([^\s]+) [\d\.]+', line)
+            elif 'Connection closed by invalid user' in line or 'Invalid user' in line:
+                ip_m = re.search(r'([\d\.]+)', line.split('from')[-1]) if 'from' in line else None
+                user_m = re.search(r'user ([^\s]+)', line)
                 if ip_m and user_m:
-                    add_event(ip_m.group(1), time_str, "SSH", "Брутфорс", "danger", f"Отклонен инвалидный пользователь: '{user_m.group(1)}'")
+                    add_event(ip_m.group(1), time_str, "SSH", 2, f"Отклонен инвалидный пользователь SSH: '{user_m.group(1)}'")
     except: pass
 
 
     # ================== ФОРМИРУЕМ ФИНАЛЬНЫЙ СПИСОК ==================
     final_logs = []
+    
     for ip, data in analytics_by_ip.items():
-        # Объединяем источники (например: Nginx, UFW)
-        sources_str = " + ".join(data["source"])
+        # Сортируем события внутри IP по времени
+        data["events"].sort(key=lambda x: x["time"], reverse=True)
         
-        # Главный тип угрозы
-        types_list = list(data["type"])
-        main_type = "Угроза" if "Брутфорс" in types_list or "Блокировка" in types_list else types_list[0]
-        if data["color"] == "danger": main_type = "Сканер / Бот / Брутфорс"
-        if "Посетитель" in types_list and data["color"] != "danger": main_type = "Посетитель"
-
-        # Склеиваем события (Оставляем максимум 4 последних уникальных действия, чтобы не растягивать таблицу)
-        events_str = "<br>".join(f"• {e}" for e in data["events"][-4:])
-        if len(data["events"]) > 4:
-            events_str += f"<br><i>... и еще {len(data['events'])-4} похожих действий</i>"
+        # Определяем основной цвет и статус
+        color = "success"
+        verdict = "Обычный посетитель / Пользователь VPN"
+        
+        if data["severity"] == 2:
+            color = "danger"
+            verdict = "Сканер портов / Бот / Брутфорс"
+        elif data["severity"] == 1:
+            color = "warning"
+            verdict = "Подозрительная активность"
 
         final_logs.append({
-            "time": data["last_time"],
             "ip": ip,
-            "source": sources_str,
-            "type": main_type,
-            "color": data["color"],
-            "desc": events_str
+            "last_time": data["last_time"],
+            "sources": " + ".join(data["sources"]),
+            "verdict": verdict,
+            "color": color,
+            "events": data["events"] # Передаем полный список событий
         })
 
     # Сортируем: сначала Опасные (danger), затем по времени
-    final_logs.sort(key=lambda x: (x['color'] == 'danger', x['time']), reverse=True)
+    final_logs.sort(key=lambda x: (x['color'] == 'danger', x['last_time']), reverse=True)
 
     return jsonify({"success": True, "logs": final_logs[:100]})
-
 
 # ========================================
 # МАРШРУТЫ (Сайт)
