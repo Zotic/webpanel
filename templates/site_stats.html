@@ -175,25 +175,29 @@
             
             tr.className = rowClass;
             
-            // Если в группе несколько сообщений (произошли за 3 секунды), выводим их списком
+            // Если в группе несколько сообщений (произошли за 3 секунды), выводим их списком (ul)
             let messagesHtml = '';
             if (log.messages.length > 1) {
-                messagesHtml = '<ul class="mb-0 ps-3">';
+                messagesHtml = '<ul class="mb-0 ps-3" style="margin-top: 2px;">';
                 log.messages.forEach(msg => {
-                    messagesHtml += `<li>${msg}</li>`;
+                    messagesHtml += `<li class="mb-1">${msg}</li>`;
                 });
                 messagesHtml += '</ul>';
             } else {
-                messagesHtml = log.messages[0];
+                // Если сообщение одно, добавляем margin-top, чтобы оно визуально было на одном уровне с бейджиком
+                messagesHtml = `<div style="margin-top: 2px;">${log.messages[0]}</div>`;
             }
             
+            // Используем d-flex и gap-2 для идеального выравнивания значка и текста
             tr.innerHTML = `
                 <td class="ps-4 text-muted small fw-bold align-middle" style="font-family: 'Roboto', sans-serif;">${log.time}</td>
                 <td class="fw-bold font-monospace text-dark align-middle">${log.ip}</td>
-                <td class="align-middle"><span class="badge bg-${log.color} w-100">${log.verdict}</span></td>
+                <td class="align-middle"><span class="badge bg-${log.color} w-100 py-2">${log.verdict}</span></td>
                 <td class="pe-4 text-dark font-monospace small align-middle" style="white-space: normal; word-break: break-word;">
-                    <span class="badge bg-secondary me-2 float-start" style="width: 55px; text-align: center; margin-top: 2px;">${log.source}</span>
-                    <div style="margin-left: 65px;">${messagesHtml}</div>
+                    <div class="d-flex align-items-start gap-2">
+                        <span class="badge bg-secondary text-center flex-shrink-0" style="width: 55px; margin-top: 2px;">${log.source}</span>
+                        <div class="flex-grow-1">${messagesHtml}</div>
+                    </div>
                 </td>
             `;
             tbody.appendChild(tr);
