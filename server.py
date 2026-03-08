@@ -576,12 +576,11 @@ def parse_syslog_date(date_str):
 @app.route('/api/site_analytics', methods=['GET'])
 @login_required
 def api_site_analytics():
-    """Сверх-умный анализатор: Собирает логи Xray, Nginx, SSH и UFW в единую ленту событий."""
+    """Сверх-умный анализатор: Собирает логи Xray, Nginx, SSH и UFW и склеивает похожие события."""
     
-    final_logs = []
+    raw_logs = []
 
     def add_event(ip, time_str, source, severity, msg):
-        # Назначаем цвет и вердикт на основе серьезности
         color = "success"
         verdict = "Посетитель сайта / VPN"
         
@@ -592,7 +591,14 @@ def api_site_analytics():
             color = "warning"
             verdict = "Подозрительная активность"
 
-        final_logs.append({
+        # Преобразуем строку времени обратно в объект datetime для удобной сортировки и сравнения
+        try:
+            dt_obj = datetime.strptime(time_str, "%d.%m.%Y %H:%M:%S")
+        except:
+            dt_obj = datetime.now() # Фолбэк, если дата странная
+
+        raw_logs.append({
+            "dt_obj": dt_obj,
             "time": time_str,
             "ip": ip,
             "source": source,
@@ -601,7 +607,7 @@ def api_site_analytics():
             "msg": msg
         })
 
-    # 1. NGINX (АБСОЛЮТНО ВСЕ ЗАПРОСЫ)
+    # 1. NGINX
     try:
         if os.path.exists('/var/log/nginx/access.log'):
             res_nginx = subprocess.run(['tail', '-n', '1000', '/var/log/nginx/access.log'], capture_output=True, text=True)
@@ -618,10 +624,9 @@ def api_site_analytics():
                     
                     if ip_match and date_match:
                         ip = ip_match.group(1)
-                        if ip == '127.0.0.1': continue # Локальные запросы пропускаем
+                        if ip == '127.0.0.1': continue
                         
                         time_str = parse_nginx_date(date_match.group(1))
-                        
                         req_type = "POST" if request_info.startswith('POST') else "GET"
                         desc = f"Запрос {req_type}: '{request_info}' (Ответ: {status_code})"
                         
@@ -629,7 +634,7 @@ def api_site_analytics():
                         add_event(ip, time_str, "Nginx", severity, desc)
     except: pass
 
-    # 2. XRAY (ИЗ ACCESS.LOG - ВСЕ ПОДКЛЮЧЕНИЯ К VPN)
+    # 2. XRAY (ACCESS)
     try:
         res_xray_access = subprocess.run(['tail', '-n', '1000', '/var/log/xray/access.log'], capture_output=True, text=True)
         for line in res_xray_access.stdout.split('\n'):
@@ -650,14 +655,12 @@ def api_site_analytics():
                 add_event(client_ip, time_str, "Xray", 0, desc)
     except: pass
 
-    # 3. XRAY (ИЗ JOURNALCTL - ОШИБКИ И FALLBACK)
+    # 3. XRAY (JOURNALCTL)
     try:
         res_xray_journal = subprocess.run(['journalctl', '-u', 'xray', '-n', '1000', '--no-pager'], capture_output=True, text=True)
         xray_sessions = {}
-        
         for line in res_xray_journal.stdout.split('\n'):
             if not line.strip(): continue
-            
             match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\.\d+\s+\[.*?\]\s+\[(\d+)\]\s+(.*)', line)
             if match:
                 time_raw = match.group(1)
@@ -691,7 +694,7 @@ def api_site_analytics():
                 add_event(ip, s["time"], "Xray", 1, f"Трафик не распознан VPN. Переброшен в Nginx (Fallback){sni}")
     except: pass
 
-    # 4. UFW (ФАЕРВОЛ)
+    # 4. UFW
     try:
         res_ufw = subprocess.run(['journalctl', '-k', '--grep=UFW BLOCK', '-n', '200', '--no-pager'], capture_output=True, text=True)
         for line in res_ufw.stdout.split('\n'):
@@ -709,7 +712,7 @@ def api_site_analytics():
                 add_event(ip, time_str, "UFW", 2, f"Заблокирован вход на закрытый порт {dpt} ({proto})")
     except: pass
 
-    # 5. SSH (БРУТФОРС)
+    # 5. SSH
     try:
         res_ssh = subprocess.run(['tail', '-n', '500', '/var/log/auth.log'], capture_output=True, text=True)
         for line in res_ssh.stdout.split('\n'):
@@ -731,11 +734,56 @@ def api_site_analytics():
                     add_event(ip_m.group(1), time_str, "SSH", 2, f"Отклонен инвалидный пользователь: '{user_m.group(1)}'")
     except: pass
 
-    # Сортируем: сначала самые свежие по времени
-    final_logs.sort(key=lambda x: x['time'], reverse=True)
+    # ==========================================
+    # СЛИЯНИЕ ПОХОЖИХ СОБЫТИЙ (Окно 3 секунды)
+    # ==========================================
+    
+    # Сначала сортируем от старых к новым для правильного склеивания
+    raw_logs.sort(key=lambda x: x['dt_obj'])
+    
+    merged_logs = []
+    
+    for log in raw_logs:
+        # Проверяем, можно ли добавить этот лог к последнему элементу в merged_logs
+        merged = False
+        if merged_logs:
+            last = merged_logs[-1]
+            
+            # Условия слияния: Тот же IP, тот же Источник, тот же Вердикт (Цвет)
+            if last['ip'] == log['ip'] and last['source'] == log['source'] and last['verdict'] == log['verdict']:
+                # Разница во времени не более 3-х секунд
+                time_diff = (log['dt_obj'] - last['dt_obj']).total_seconds()
+                if 0 <= time_diff <= 3:
+                    # Избегаем дубликатов сообщений (если они абсолютно одинаковые)
+                    if log['msg'] not in last['messages']:
+                        last['messages'].append(log['msg'])
+                    
+                    # Обновляем время группы на время последнего события
+                    last['dt_obj'] = log['dt_obj']
+                    last['time'] = log['time']
+                    merged = True
+        
+        if not merged:
+            # Создаем новую группу (строку)
+            merged_logs.append({
+                "dt_obj": log['dt_obj'],
+                "time": log['time'],
+                "ip": log['ip'],
+                "source": log['source'],
+                "verdict": log['verdict'],
+                "color": log['color'],
+                "messages": [log['msg']] # Теперь сообщения хранятся списком
+            })
 
-    # Ограничиваем до 300 последних событий, чтобы браузер не тормозил
-    return jsonify({"success": True, "logs": final_logs[:300]})
+    # Сортируем итоговый список (сначала новые события)
+    merged_logs.sort(key=lambda x: x['dt_obj'], reverse=True)
+
+    # Удаляем объект datetime, так как JSON его не переваривает
+    for m in merged_logs:
+        del m['dt_obj']
+
+    return jsonify({"success": True, "logs": merged_logs[:150]})
+
 # ========================================
 # МАРШРУТЫ (Сайт)
 # ========================================

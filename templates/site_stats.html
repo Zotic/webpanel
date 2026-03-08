@@ -171,22 +171,35 @@
             let rowClass = "";
             if (log.color === 'danger') rowClass = "table-danger";
             else if (log.color === 'warning') rowClass = "table-warning";
+            else if (log.color === 'success') rowClass = "table-success";
             
             tr.className = rowClass;
             
+            // Если в группе несколько сообщений (произошли за 3 секунды), выводим их списком
+            let messagesHtml = '';
+            if (log.messages.length > 1) {
+                messagesHtml = '<ul class="mb-0 ps-3">';
+                log.messages.forEach(msg => {
+                    messagesHtml += `<li>${msg}</li>`;
+                });
+                messagesHtml += '</ul>';
+            } else {
+                messagesHtml = log.messages[0];
+            }
+            
             tr.innerHTML = `
-                <td class="ps-4 text-muted small" style="font-family: 'Roboto', sans-serif;">${log.time}</td>
-                <td class="fw-bold font-monospace text-dark">${log.ip}</td>
-                <td><span class="badge bg-${log.color} w-100">${log.verdict}</span></td>
-                <td class="pe-4 text-dark font-monospace small" style="white-space: normal; word-break: break-word;">
-                    <span class="badge bg-secondary me-2" style="width: 55px; display: inline-block; text-align: center;">${log.source}</span>
-                    ${log.msg}
+                <td class="ps-4 text-muted small fw-bold align-middle" style="font-family: 'Roboto', sans-serif;">${log.time}</td>
+                <td class="fw-bold font-monospace text-dark align-middle">${log.ip}</td>
+                <td class="align-middle"><span class="badge bg-${log.color} w-100">${log.verdict}</span></td>
+                <td class="pe-4 text-dark font-monospace small align-middle" style="white-space: normal; word-break: break-word;">
+                    <span class="badge bg-secondary me-2 float-start" style="width: 55px; text-align: center; margin-top: 2px;">${log.source}</span>
+                    <div style="margin-left: 65px;">${messagesHtml}</div>
                 </td>
             `;
             tbody.appendChild(tr);
         });
     }
-
+    
     document.addEventListener("DOMContentLoaded", fetchAnalytics);
 </script>
 {% endblock %}
