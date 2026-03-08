@@ -74,16 +74,16 @@
 <!-- Умная таблица аналитики -->
 <div class="card border-0 shadow-sm">
     <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center">
-        <span class="fw-bold">Анализатор активности (Угрозы и Подключения)</span>
+        <span class="fw-bold">Анализатор активности</span>
         
         <div class="d-flex gap-2">
             <!-- КНОПКА СОРТИРОВКИ ПО ТИПУ (ИСТОЧНИКУ) -->
             <select id="sourceFilter" class="form-select form-select-sm shadow-sm" style="border-radius: 8px; width: auto;" onchange="filterAnalytics()">
                 <option value="all">Все события</option>
-                <option value="Nginx">Только Nginx (Сайт)</option>
-                <option value="Xray">Только Xray (VPN)</option>
-                <option value="SSH">Только SSH (Брутфорс)</option>
-                <option value="UFW">Только Фаервол (UFW)</option>
+                <option value="Nginx">Nginx (Сайт)</option>
+                <option value="Xray">Xray (VPN)</option>
+                <option value="SSH">SSH (Брутфорс)</option>
+                <option value="UFW">UFW (Фаервол)</option>
             </select>
 
             <button class="btn btn-sm btn-primary shadow-sm d-flex align-items-center gap-1" onclick="fetchAnalytics()">
@@ -99,12 +99,11 @@
                         <th class="ps-4">Последняя активность</th>
                         <th>IP Адрес</th>
                         <th>Вердикт</th>
-                        <th>Источники логов</th>
                         <th class="pe-4">Подробный список действий</th>
                     </tr>
                 </thead>
                 <tbody id="analyticsTable">
-                    <tr><td colspan="5" class="text-center py-5 text-muted">Анализируем логи сервера...</td></tr>
+                    <tr><td colspan="4" class="text-center py-5 text-muted">Анализируем логи сервера...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -114,7 +113,7 @@
 
 {% block scripts %}
 <script>
-    let analyticsData = []; // Храним загруженные данные для фильтрации
+    let analyticsData = []; 
 
     async function restartCoreService(serviceName) {
         if (!confirm(`Точно перезапустить ${serviceName}?`)) return;
@@ -136,7 +135,7 @@
 
     async function fetchAnalytics() {
         const tbody = document.getElementById('analyticsTable');
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted">Сканируем логи Xray, Nginx, SSH и UFW...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-5 text-muted">Сканируем логи Xray, Nginx, SSH и UFW...</td></tr>';
         
         try {
             const res = await fetch('/api/site_analytics');
@@ -145,10 +144,10 @@
             
             if (data.success) {
                 analyticsData = data.logs;
-                filterAnalytics(); // Отрисовываем с учетом текущего фильтра
+                filterAnalytics(); 
             }
         } catch (e) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-danger">Ошибка загрузки данных</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center py-5 text-danger">Ошибка загрузки данных</td></tr>';
         }
     }
 
@@ -157,14 +156,16 @@
         const selectedSource = document.getElementById('sourceFilter').value;
         tbody.innerHTML = '';
 
-        // Фильтруем данные по источнику
+        // Фильтруем. Оставляем IP, в списке событий которого есть выбранный источник
         let filteredData = analyticsData;
         if (selectedSource !== 'all') {
-            filteredData = analyticsData.filter(log => log.sources.includes(selectedSource));
+            filteredData = analyticsData.filter(log => 
+                log.events.some(evt => evt.source === selectedSource)
+            );
         }
 
         if (filteredData.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted">По вашему запросу событий нет.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center py-5 text-muted">По вашему запросу событий нет.</td></tr>';
             return;
         }
 
@@ -178,10 +179,13 @@
             
             tr.className = rowClass;
             
-            // Выводим ВСЕ события, формируя HTML-список с временем
+            // Формируем список ВСЕХ действий для этого IP
             let eventsListHtml = '<ul class="list-unstyled mb-0" style="white-space: normal; word-break: break-word; min-width: 300px; font-size: 0.85rem;">';
             log.events.forEach(evt => {
-                eventsListHtml += `<li class="mb-1"><strong class="text-muted border-end pe-2 me-2">${evt.time}</strong><span class="badge bg-secondary me-1">${evt.source}</span> ${evt.msg}</li>`;
+                // Если мы выбрали фильтр (например Nginx), скрываем события других источников у этого IP
+                if (selectedSource !== 'all' && evt.source !== selectedSource) return;
+                
+                eventsListHtml += `<li class="mb-1"><strong class="text-muted border-end pe-2 me-2">${evt.time}</strong><span class="badge bg-secondary me-1" style="width: 50px;">${evt.source}</span> ${evt.msg}</li>`;
             });
             eventsListHtml += '</ul>';
             
@@ -189,7 +193,6 @@
                 <td class="ps-4 text-muted small fw-bold" style="font-family: 'Roboto', sans-serif;">${log.last_time}</td>
                 <td class="fw-bold font-monospace text-dark">${log.ip}</td>
                 <td><span class="badge bg-${log.color} w-100">${log.verdict}</span></td>
-                <td class="text-muted small fw-bold text-center">${log.sources}</td>
                 <td class="pe-4 text-dark font-monospace">${eventsListHtml}</td>
             `;
             tbody.appendChild(tr);

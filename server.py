@@ -576,28 +576,28 @@ def parse_syslog_date(date_str):
 @app.route('/api/site_analytics', methods=['GET'])
 @login_required
 def api_site_analytics():
-    """Умный агрегатор логов. Собирает все действия по IP адресу в единую картину."""
+    """Сверх-умный анализатор: Группирует логи Xray, Nginx, SSH и UFW по IP адресам. ВЫВОДИТ ВСЁ."""
     analytics_by_ip = {}
 
     def add_event(ip, time_str, source, severity, msg):
         if ip not in analytics_by_ip:
-            analytics_by_ip[ip] = {"events": [], "sources": set(), "severity": 0, "last_time": time_str}
+            analytics_by_ip[ip] = {"events": [], "severity": 0, "last_time": time_str}
         
+        # Повышаем уровень опасности IP, если это сканер или брутфорс
         if severity > analytics_by_ip[ip]["severity"]:
             analytics_by_ip[ip]["severity"] = severity
             
-        analytics_by_ip[ip]["sources"].add(source)
-        # Оставляем только уникальные сообщения для каждого IP, чтобы не дублировать
+        # Добавляем событие (проверяем на дубли)
         if not any(e['msg'] == msg for e in analytics_by_ip[ip]["events"]):
             analytics_by_ip[ip]["events"].append({"time": time_str, "msg": msg, "source": source})
             
-        # Обновляем время последней активности
-        analytics_by_ip[ip]["last_time"] = time_str
+        # Обновляем время последней активности на самое свежее
+        analytics_by_ip[ip]["last_time"] = max(analytics_by_ip[ip]["last_time"], time_str)
 
-    # 1. NGINX
+    # 1. NGINX (АБСОЛЮТНО ВСЕ ЗАПРОСЫ)
     try:
         if os.path.exists('/var/log/nginx/access.log'):
-            res_nginx = subprocess.run(['tail', '-n', '500', '/var/log/nginx/access.log'], capture_output=True, text=True)
+            res_nginx = subprocess.run(['tail', '-n', '1000', '/var/log/nginx/access.log'], capture_output=True, text=True)
             for line in res_nginx.stdout.split('\n'):
                 if not line.strip(): continue
                 parts = line.split('"')
@@ -611,62 +611,95 @@ def api_site_analytics():
                     
                     if ip_match and date_match:
                         ip = ip_match.group(1)
-                        if ip == '127.0.0.1': continue
+                        if ip == '127.0.0.1': continue # Локальные запросы от самого сервера пропускаем
+                        
                         time_str = parse_nginx_date(date_match.group(1))
                         
+                        # Выводим метод запроса
                         req_type = "POST" if request_info.startswith('POST') else "GET"
-                        desc = f"{req_type}-запрос к сайту: '{request_info}' (Ответ: {status_code})"
+                        desc = f"Запрос {req_type}: '{request_info}' (HTTP Ответ: {status_code})"
                         
-                        severity = 0
-                        if status_code == '301' or status_code.startswith(('4', '5')):
-                            severity = 2
-                            
+                        # Коды 301, 400+, 500+ считаем подозрительными (сканер)
+                        severity = 2 if status_code == '301' or status_code.startswith(('4', '5')) else 0
                         add_event(ip, time_str, "Nginx", severity, desc)
     except: pass
 
-    # 2. XRAY (Из Access Log - успешные подключения)
+    # 2. XRAY (ИЗ ACCESS.LOG - ВСЕ ПОДКЛЮЧЕНИЯ К VPN)
     try:
-        res_xray_access = subprocess.run(['tail', '-n', '500', '/var/log/xray/access.log'], capture_output=True, text=True)
+        res_xray_access = subprocess.run(['tail', '-n', '1000', '/var/log/xray/access.log'], capture_output=True, text=True)
         for line in res_xray_access.stdout.split('\n'):
             if not line.strip(): continue
             match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}).*?(?:from\s+)?([a-fA-F0-9\.:]+):\d+\s+accepted\s+[a-zA-Z0-9]+:([a-zA-Z0-9\.\-]+):(\d+)', line)
             if match:
                 time_raw, client_ip, dest_ip, port = match.groups()
+                
+                # Приводим дату к единому формату: 2026/03/08 12:07:47 -> 08.03.2026 12:07:47
+                date_part, time_part = time_raw.split()
+                y, m, d = date_part.split('/')
+                time_str = f"{d}.{m}.{y} {time_part}"
+                
+                # Ищем юзернейм
+                user = ""
+                email_match = re.search(r'email:\s*([^\s]+)', line)
+                if email_match: user = f" (Пользователь: {email_match.group(1)})"
+                
+                desc = f"Успешное VPN подключение к {dest_ip}:{port}{user}"
+                add_event(client_ip, time_str, "Xray", 0, desc)
+    except: pass
+
+    # 3. XRAY (ИЗ JOURNALCTL - ОШИБКИ И FALLBACK)
+    try:
+        res_xray_journal = subprocess.run(['journalctl', '-u', 'xray', '-n', '1000', '--no-pager'], capture_output=True, text=True)
+        
+        # Словарь для сборки "кусков" логов Xray по ID сессии
+        xray_sessions = {}
+        
+        for line in res_xray_journal.stdout.split('\n'):
+            if not line.strip(): continue
+            
+            # Ищем структуру: 2026/03/08 12:07:47.686942 [Info] [1582461403] ...
+            match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\.\d+\s+\[.*?\]\s+\[(\d+)\]\s+(.*)', line)
+            if match:
+                time_raw = match.group(1)
                 # 2026/03/08 12:07:47 -> 08.03.2026 12:07:47
                 date_part, time_part = time_raw.split()
                 y, m, d = date_part.split('/')
                 time_str = f"{d}.{m}.{y} {time_part}"
                 
-                # Достаем юзернейм если есть
-                user = ""
-                email_match = re.search(r'email:\s*([^\s]+)', line)
-                if email_match: user = f" (Пользователь: {email_match.group(1)})"
+                conn_id = match.group(2)
+                msg = match.group(3)
                 
-                # Если IP не состоит только из цифр, значит это домен. Резолвить не будем для экономии ресурсов
-                add_event(client_ip, time_str, "Xray", 0, f"Успешное VPN подключение к {dest_ip}:{port}{user}")
+                if conn_id not in xray_sessions:
+                    xray_sessions[conn_id] = {"time": time_str, "ip": None, "messages": []}
+                
+                xray_sessions[conn_id]["messages"].append(msg)
+                
+                # Пытаемся вытащить IP (он обычно пишется при разрыве tcp или udp соединения)
+                # read tcp 45.85.117.150:443->185.12.59.118:58488
+                ip_match = re.search(r'->([\d\.]+):\d+', msg)
+                if ip_match:
+                    xray_sessions[conn_id]["ip"] = ip_match.group(1)
+                    
+        # Теперь анализируем собранные сессии
+        for conn_id, s in xray_sessions.items():
+            ip = s["ip"]
+            if not ip: continue # Если IP не нашли, пропускаем
+            
+            # Собираем все сообщения сессии в одну строку для поиска
+            full_msg = " ".join(s["messages"])
+            
+            if 'not look like a TLS handshake' in full_msg or 'invalid request version' in full_msg:
+                add_event(ip, s["time"], "Xray", 2, "Ошибка TLS (Попытка не-VPN запроса или сканирования 443 порта)")
+            elif 'fallback starts' in full_msg:
+                # Пытаемся вытащить SNI (домен, который запрашивал клиент)
+                sni_match = re.search(r'realName = ([^\s]+)', full_msg)
+                sni = f" (Домен: {sni_match.group(1)})" if sni_match else ""
+                
+                add_event(ip, s["time"], "Xray", 1, f"Трафик не распознан VPN. Переброшен в Nginx (Fallback){sni}")
     except: pass
 
-    # 3. XRAY (Из Journalctl - Ошибки и Fallback)
+    # 4. UFW (ФАЕРВОЛ)
     try:
-        res_xray_journal = subprocess.run(['journalctl', '-u', 'xray', '-n', '500', '--no-pager'], capture_output=True, text=True)
-        # Так как IP пишется не везде, будем искать ошибки по цепочке. Но для простоты:
-        for line in res_xray_journal.stdout.split('\n'):
-            if not line.strip(): continue
-            # Ищем IP в ошибках разрыва
-            ip_match = re.search(r'read tcp ([\d\.]+):443->([\d\.]+):\d+', line)
-            if ip_match:
-                client_ip = ip_match.group(2) # Направление Сервер -> Клиент (или наоборот, зависит от типа закрытия)
-                time_str = parse_syslog_date(line)
-                
-                if 'not look like a TLS handshake' in line or 'invalid request version' in line:
-                    add_event(client_ip, time_str, "Xray", 2, "Ошибка рукопожатия TLS (Попытка не-VPN запроса на 443 порт)")
-                elif 'fallback starts' in line:
-                    add_event(client_ip, time_str, "Xray", 1, "VPN-трафик не распознан. Сработал Fallback (перенаправление на Nginx)")
-    except: pass
-
-    # 4. UFW (Фаервол)
-    try:
-        # Читаем логи ядра (UFW пишет туда)
         res_ufw = subprocess.run(['journalctl', '-k', '--grep=UFW BLOCK', '-n', '200', '--no-pager'], capture_output=True, text=True)
         for line in res_ufw.stdout.split('\n'):
             if not line.strip(): continue
@@ -680,10 +713,10 @@ def api_site_analytics():
                 proto = proto_m.group(1) if proto_m else "TCP"
                 time_str = parse_syslog_date(line)
                 
-                add_event(ip, time_str, "UFW", 2, f"Блокировка UFW: Попытка входа на закрытый порт {dpt} по протоколу {proto}")
+                add_event(ip, time_str, "UFW", 2, f"Попытка входа на закрытый порт {dpt} по протоколу {proto}")
     except: pass
 
-    # 5. SSH (Брутфорс)
+    # 5. SSH (БРУТФОРС)
     try:
         res_ssh = subprocess.run(['tail', '-n', '500', '/var/log/auth.log'], capture_output=True, text=True)
         for line in res_ssh.stdout.split('\n'):
@@ -696,15 +729,14 @@ def api_site_analytics():
                 ip_m = re.search(r'from ([\d\.]+)', line)
                 user_m = re.search(r'for (?:invalid user )?([^\s]+) from', line)
                 if ip_m and user_m:
-                    add_event(ip_m.group(1), time_str, "SSH", 2, f"Брутфорс SSH: Неудачный пароль для пользователя '{user_m.group(1)}'")
+                    add_event(ip_m.group(1), time_str, "SSH", 2, f"Неудачный подбор пароля для пользователя '{user_m.group(1)}'")
             
             elif 'Connection closed by invalid user' in line or 'Invalid user' in line:
                 ip_m = re.search(r'([\d\.]+)', line.split('from')[-1]) if 'from' in line else None
                 user_m = re.search(r'user ([^\s]+)', line)
                 if ip_m and user_m:
-                    add_event(ip_m.group(1), time_str, "SSH", 2, f"Отклонен инвалидный пользователь SSH: '{user_m.group(1)}'")
+                    add_event(ip_m.group(1), time_str, "SSH", 2, f"Отклонен инвалидный пользователь: '{user_m.group(1)}'")
     except: pass
-
 
     # ================== ФОРМИРУЕМ ФИНАЛЬНЫЙ СПИСОК ==================
     final_logs = []
@@ -713,9 +745,9 @@ def api_site_analytics():
         # Сортируем события внутри IP по времени
         data["events"].sort(key=lambda x: x["time"], reverse=True)
         
-        # Определяем основной цвет и статус
+        # Определяем цвет всей строки по самому жесткому событию
         color = "success"
-        verdict = "Обычный посетитель / Пользователь VPN"
+        verdict = "Посетитель сайта / Пользователь VPN"
         
         if data["severity"] == 2:
             color = "danger"
@@ -727,10 +759,9 @@ def api_site_analytics():
         final_logs.append({
             "ip": ip,
             "last_time": data["last_time"],
-            "sources": " + ".join(data["sources"]),
             "verdict": verdict,
             "color": color,
-            "events": data["events"] # Передаем полный список событий
+            "events": data["events"] # Передаем полный список
         })
 
     # Сортируем: сначала Опасные (danger), затем по времени
