@@ -12,12 +12,12 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 
 app = Flask(__name__)
 
-# Читаем данные из системных переменных. Если их нет - используем дефолтные.
+# Читаем данные из системных переменных.
 app.secret_key = os.getenv('PANEL_SECRET_KEY', 'fallback_secret_key_123') 
 ADMIN_USERNAME = os.getenv('PANEL_ADMIN_USER', 'admin')
 ADMIN_PASSWORD = os.getenv('PANEL_ADMIN_PASS', 'password')
 
-# === НАСТРОЙКИ ПАНЕЛИ ===
+# === НАСТРОЙКИ ===
 SERVICE_PREFIX = "flaskbot_"
 SYSTEMD_DIR = "/etc/systemd/system"
 DEFAULT_DIR = "/root/Bots"
@@ -25,18 +25,9 @@ BOTS_ORDER_FILE = "bots_order.json"
 LIMITS_FILE = "ip_limits.json"
 CUSTOM_NAMES_FILE = "custom_names.json"
 
-APP_START_TIME = time.time()
-
-# Глобальные переменные для кэша и мониторинга
 last_net_io = None
 last_net_time = 0
-proc_cache = {}
-_proxy_pids_cache = set()
-_proxy_pids_time = 0
-_outline_cache = ({}, {})
-_outline_time = 0
 
-# Регулярное выражение для удаления ANSI цветовых кодов из логов
 ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
 def clean_logs(logs_str):
@@ -62,42 +53,36 @@ def run_command(cmd):
 
 
 # ========================================
-# УПРАВЛЕНИЕ ИМЕНАМИ И СКОРОСТЬЮ (Traffic Control)
+# УПРАВЛЕНИЕ СКОРОСТЬЮ (Traffic Control)
 # ========================================
-def get_custom_names():
-    if os.path.exists(CUSTOM_NAMES_FILE):
-        try:
-            with open(CUSTOM_NAMES_FILE, 'r') as f:
-                return json.load(f)
-        except: pass
-    return {}
-
-def save_custom_names(names):
-    with open(CUSTOM_NAMES_FILE, 'w') as f:
-        json.dump(names, f)
-
 def get_limits():
     if os.path.exists(LIMITS_FILE):
         try:
-            with open(LIMITS_FILE, 'r') as f:
-                return json.load(f)
+            with open(LIMITS_FILE, 'r') as f: return json.load(f)
         except: pass
     return {}
 
 def save_limits(limits):
-    with open(LIMITS_FILE, 'w') as f:
-        json.dump(limits, f)
+    with open(LIMITS_FILE, 'w') as f: json.dump(limits, f)
+
+def get_custom_names():
+    if os.path.exists(CUSTOM_NAMES_FILE):
+        try:
+            with open(CUSTOM_NAMES_FILE, 'r') as f: return json.load(f)
+        except: pass
+    return {}
+
+def save_custom_names(names):
+    with open(CUSTOM_NAMES_FILE, 'w') as f: json.dump(names, f)
 
 def get_main_interface():
     try:
         out = run_command("ip route get 8.8.8.8")
         match = re.search(r'dev\s+([^\s]+)', out)
         return match.group(1) if match else "eth0"
-    except:
-        return "eth0"
+    except: return "eth0"
 
 def sync_tc_rules():
-    """Синхронизирует правила Linux TC с нашим файлом"""
     iface = get_main_interface()
     limits = get_limits()
     run_command(f"tc qdisc del dev {iface} root")
@@ -112,33 +97,28 @@ def sync_tc_rules():
 
 sync_tc_rules()
 
-
 # ========================================
 # ФУНКЦИИ ДЛЯ БОТОВ И СЕРВИСОВ
 # ========================================
 def get_saved_order():
     if os.path.exists(BOTS_ORDER_FILE):
         try:
-            with open(BOTS_ORDER_FILE, 'r') as f:
-                return json.load(f)
+            with open(BOTS_ORDER_FILE, 'r') as f: return json.load(f)
         except: pass
     return []
 
 def save_bots_order(order_list):
-    with open(BOTS_ORDER_FILE, 'w') as f:
-        json.dump(order_list, f)
+    with open(BOTS_ORDER_FILE, 'w') as f: json.dump(order_list, f)
 
 def get_exec_path(service_name, extract_python=False):
     try:
         res = subprocess.run(['systemctl', 'show', '-p', 'ExecStart', service_name], capture_output=True, text=True)
         path = ""
         match = re.search(r'argv\[\]=(.*?)\s+;', res.stdout)
-        if match:
-            path = match.group(1).strip()
+        if match: path = match.group(1).strip()
         else:
             match_path = re.search(r'path=(.*?)\s+;', res.stdout)
-            if match_path:
-                path = match_path.group(1).strip()
+            if match_path: path = match_path.group(1).strip()
                 
         if path:
             is_python = False
@@ -148,8 +128,7 @@ def get_exec_path(service_name, extract_python=False):
                 if parts and 'python' in parts[0].lower():
                     is_python = True
                     python_path = parts[0]
-                    if len(parts) > 1:
-                        path = " ".join(parts[1:])
+                    if len(parts) > 1: path = " ".join(parts[1:])
             return path, is_python, python_path
     except: pass
     return "Путь неизвестен", False, ""
@@ -178,7 +157,6 @@ def get_bots():
 
 def get_all_services():
     try:
-        # Сверхбыстрый сбор системных сервисов
         res = subprocess.run(['systemctl', 'list-units', '--type=service', '--all', '--no-pager', '--no-legend'], capture_output=True, text=True)
         service_names = [line.split()[0] for line in res.stdout.split('\n') if line.strip() and line.split()[0].endswith('.service')]
         if not service_names: return []
@@ -204,7 +182,7 @@ def get_all_services():
                     services.append({
                         "name": current_svc['Id'], "service": current_svc['Id'],
                         "active": (current_svc.get('ActiveState') == 'active'), "path": clean_path,
-                        "logs": "Нажмите кнопку обновления логов (📄) для загрузки."
+                        "logs": "Нажмите 📄 для загрузки."
                     })
                 current_svc = {}
             elif '=' in line:
@@ -215,10 +193,247 @@ def get_all_services():
         print(f"Ошибка получения сервисов: {e}")
         return []
 
+# ========================================
+# ОПТИМИЗИРОВАННЫЙ БЛОК VPN ПОДКЛЮЧЕНИЙ
+# ========================================
+_proxy_pids_cache = set()
+_proxy_pids_time = 0
+_outline_cache = ({}, {})
+_outline_time = 0
 
-# ========================================
-# ФУНКЦИИ ДЛЯ VPN / XRAY / OUTLINE / ПРОКСИ
-# ========================================
+def get_proxy_pids():
+    global _proxy_pids_cache, _proxy_pids_time
+    if time.time() - _proxy_pids_time > 15:
+        pids = set()
+        proxy_names = ['xray', '3proxy', 'danted', 'shadowbox', 'docker-proxy', 'mtproto-proxy']
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                name = proc.info['name'].lower()
+                if any(p in name for p in proxy_names):
+                    pids.add(proc.info['pid'])
+            except: pass
+        _proxy_pids_cache = pids
+        _proxy_pids_time = time.time()
+    return _proxy_pids_cache
+
+def get_outline_connections():
+    global _outline_cache, _outline_time
+    if time.time() - _outline_time < 3: return _outline_cache
+
+    inbound, outbound = {}, {}
+    container_name = "shadowbox"
+    try:
+        res = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'], capture_output=True, text=True)
+        if 'shadowbox' not in res.stdout:
+            res2 = subprocess.run(['docker', 'ps', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
+            if res2.stdout.strip(): container_name = res2.stdout.strip().split('\n')[0]
+            
+        net_res = subprocess.run(['docker', 'exec', container_name, 'netstat', '-tun'], capture_output=True, text=True)
+        for line in net_res.stdout.split('\n'):
+            line = line.strip()
+            if 'ESTABLISHED' in line or line.startswith('udp'):
+                parts = line.split()
+                if len(parts) >= 5:
+                    local_addr, foreign_addr = parts[3], parts[4]
+                    if ':' not in local_addr or ':' not in foreign_addr: continue
+                    f_ip, f_port = foreign_addr.rsplit(':', 1)
+                    l_ip, l_port = local_addr.rsplit(':', 1)
+                    f_ip = f_ip.replace('::ffff:', '')
+                    if f_ip in ('127.0.0.1', '::1', '0.0.0.0', '*'): continue
+                    try:
+                        f_port_num, l_port_num = int(f_port), int(l_port)
+                        if f_port_num < 10240 and l_port_num > 10240: outbound[f_ip] = outbound.get(f_ip, 0) + 1
+                        else: inbound[f_ip] = inbound.get(f_ip, 0) + 1
+                    except: pass
+    except: pass
+    
+    _outline_cache = (inbound, outbound)
+    _outline_time = time.time()
+    return _outline_cache
+
+def get_active_vpn_users():
+    proxy_pids = get_proxy_pids()
+    inbound_ips, outbound_ips = {}, {}
+    
+    local_ips = set()
+    for interface, snics in psutil.net_if_addrs().items():
+        for snic in snics:
+            if snic.family == socket.AF_INET: local_ips.add(snic.address)
+
+    listening_ports = set()
+    for conn in psutil.net_connections(kind='inet'):
+        if conn.pid in proxy_pids:
+            if conn.status == 'LISTEN' or conn.type == socket.SOCK_DGRAM:
+                listening_ports.add(conn.laddr.port)
+
+    for conn in psutil.net_connections(kind='inet'):
+        if conn.pid in proxy_pids and conn.raddr:
+            remote_ip = conn.raddr.ip
+            local_ip = conn.laddr.ip
+            if remote_ip in local_ips or remote_ip.startswith('127.') or remote_ip.startswith('::1'): continue
+            if remote_ip.startswith('172.') and local_ip.startswith('172.'): continue
+            
+            if conn.laddr.port in listening_ports:
+                inbound_ips[remote_ip] = inbound_ips.get(remote_ip, 0) + 1
+            else:
+                outbound_ips[remote_ip] = outbound_ips.get(remote_ip, 0) + 1
+
+    out_inbound, out_outbound = get_outline_connections()
+    for ip, count in out_inbound.items(): inbound_ips[ip] = inbound_ips.get(ip, 0) + count
+    for ip, count in out_outbound.items(): outbound_ips[ip] = outbound_ips.get(ip, 0) + count
+
+    return inbound_ips, outbound_ips
+
+@lru_cache(maxsize=2000)
+def reverse_dns(ip):
+    try:
+        if ip.startswith(('192.168.', '10.', '172.', '127.')): return None
+        socket.setdefaulttimeout(0.05) 
+        hostname = socket.gethostbyaddr(ip)[0]
+        return hostname if hostname != ip else None
+    except: return None
+
+def get_recent_connections(skip_dns=False):
+    try:
+        result = subprocess.run(['tail', '-100', '/var/log/xray/access.log'], capture_output=True, text=True)
+        connections = []
+        seen = set()
+        for line in reversed(result.stdout.split('\n')):
+            if not line.strip(): continue
+            match = re.search(r'(\d{2}:\d{2}:\d{2}).*?(?:from\s+)?([a-fA-F0-9\.:]+):\d+\s+accepted\s+[a-zA-Z0-9]+:([a-zA-Z0-9\.\-]+):(\d+)\s+\[([^\]]+)\]', line)
+            if match:
+                time_str, client_ip, dest_ip, port, route = match.groups()
+                user = "-"
+                email_match = re.search(r'email:\s*([^\s]+)', line)
+                if email_match: user = email_match.group(1)
+                
+                key = f"{client_ip}:{dest_ip}:{port}:{route}"
+                if key in seen: continue
+                seen.add(key)
+                
+                domain = dest_ip if skip_dns or not dest_ip.replace('.', '').isdigit() else reverse_dns(dest_ip)
+                connections.append({
+                    'time': time_str, 'client': client_ip, 'user': user,
+                    'dest': f"{dest_ip}:{port}", 'domain': domain, 
+                    'route': route, 'route_class': 'direct' if route == 'direct' else 'vless'
+                })
+        return connections[:30]
+    except: return []
+
+def get_3proxy_connections():
+    possible_paths = ['/var/log/3proxy.log', '/var/log/3proxy/3proxy.log', '/var/log/3proxy']
+    log_file = next((path for path in possible_paths if os.path.isfile(path)), None)
+    if not log_file: return [{"time": "-", "user": "-", "client": "-", "dest": "ОШИБКА", "status": "Файл лога 3proxy не найден"}]
+
+    try:
+        res = subprocess.run(['tail', '-100', log_file], capture_output=True, text=True)
+        connections = []
+        for line in reversed(res.stdout.split('\n')):
+            if not line.strip(): continue
+            parts = line.split()
+            if len(parts) >= 10:
+                try: time_str = datetime.fromtimestamp(float(parts[0])).strftime('%d.%m %H:%M:%S')
+                except: time_str = parts[0]
+                user, event = parts[3], parts[9]
+                if 'Accepting_connections' in event: continue
+                if event.startswith('CONNECT_'): event = 'CONNECT'
+                elif event.startswith('UNKNOWN_'): event = 'UNKNOWN'
+                connections.append({
+                    'time': time_str, 'user': user if user != '-' else 'Unknown',
+                    'client': parts[4], 'dest': parts[5], 'status': event
+                })
+        return connections[:50]
+    except Exception as e: return [{"time": "-", "user": "-", "client": "-", "dest": "ОШИБКА", "status": str(e)}]
+
+def get_danted_connections():
+    try:
+        res = subprocess.run(['tail', '-100', '/var/log/socks.log'], capture_output=True, text=True)
+        connections = []
+        for line in reversed(res.stdout.split('\n')):
+            if not line.strip(): continue
+            time_match = re.search(r'^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})', line)
+            time_str = time_match.group(1) if time_match else ""
+            status = "pass" if "pass(" in line else "block" if "block(" in line else "info"
+            client, dest, user = "unknown", "unknown", "-"
+            
+            user_m = re.search(r'username%([^@\s]+)@', line)
+            if user_m: user = user_m.group(1)
+            
+            if "tcp/connect" in line:
+                client_m = re.search(r'@(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\.\d+', line)
+                if client_m: client = client_m.group(1)
+                dest_m = re.search(r'->\s+[\d\.]+\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d+)', line)
+                if dest_m: dest = f"{dest_m.group(1)}:{dest_m.group(2)}"
+            elif "tcp/accept" in line:
+                m = re.search(r'[:\]]\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\.\d+\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
+                if m: client, dest = m.group(1), f"Local: {m.group(2)}"
+
+            if client != "unknown":
+                raw_log = line.split(']: ')[-1] if ']: ' in line else line
+                if user != "-": raw_log = re.sub(r'username%[^@]+@', '', raw_log)
+                connections.append({'time': time_str, 'client': client, 'dest': dest, 'user': user, 'status': status, 'raw': raw_log})
+        return connections[:50]
+    except: return []
+
+def get_dns_queries():
+    try:
+        result = subprocess.run(['tail', '-200', '/var/log/dnsmasq.log'], capture_output=True, text=True)
+        queries, seen = [], set()
+        for line in result.stdout.split('\n'):
+            match = re.search(r'(\d{2}:\d{2}:\d{2}).*query\[(\w+)\] ([^\s]+) from ([\d.]+)', line)
+            if match:
+                time, qtype, domain, client = match.groups()
+                key = f"{domain}:{client}"
+                if key not in seen and not domain.startswith('in-addr.arpa'):
+                    seen.add(key)
+                    queries.append({'time': time, 'client': client, 'domain': domain, 'type': qtype})
+        return queries[:50]
+    except: return []
+
+def analyze_proxy_logs():
+    ip_to_users, target_to_users = {}, {}
+    def add_user(ip, user):
+        if user and user not in ('-', 'Unknown', 'unknown'):
+            if ip not in ip_to_users: ip_to_users[ip] = set()
+            ip_to_users[ip].add(user)
+            
+    def add_target(target, client_ip, user):
+        target_ip = target.split(':')[0]
+        if target_ip not in target_to_users: target_to_users[target_ip] = set()
+        if user and user not in ('-', 'Unknown', 'unknown'): target_to_users[target_ip].add(user)
+        else: target_to_users[target_ip].add(client_ip)
+
+    try:
+        for c in get_3proxy_connections():
+            client_ip, user = c['client'].split(':')[0], c['user']
+            add_user(client_ip, user)
+            if c['dest'] != 'ОШИБКА': add_target(c['dest'], client_ip, user)
+    except: pass
+    try:
+        for c in get_danted_connections():
+            client_ip, user = c['client'].split(':')[0], c['user']
+            add_user(client_ip, user)
+            if c['dest'] != 'unknown' and not str(c['dest']).startswith('Local:'): add_target(c['dest'], client_ip, user)
+    except: pass
+    try:
+        for c in get_recent_connections(skip_dns=True):
+            client_ip = c['client']
+            user = c.get('user', '-')
+            add_user(client_ip, user)
+            add_target(c['dest'], client_ip, user)
+    except: pass
+    
+    final_target_to_user = {}
+    for target, userset in target_to_users.items():
+        final_set = set()
+        for u in userset:
+            if u in ip_to_users:
+                for known_user in ip_to_users[u]: final_set.add(known_user)
+            else: final_set.add(u)
+        final_target_to_user[target] = list(final_set)
+    final_ip_to_users = {ip: ", ".join(users) for ip, users in ip_to_users.items()}
+    return final_ip_to_users, final_target_to_user
+
 def get_outline_status():
     try:
         res = subprocess.run(['docker', 'ps', '--filter', 'name=shadowbox', '--format', '{{.Status}}'], capture_output=True, text=True)
@@ -299,249 +514,11 @@ def get_mtproto_stats():
         stats['uptime_formatted'] = "0д 0ч 0м"
     return stats
 
-def get_proxy_pids():
-    """Кэширует список PID процессов на 15 секунд"""
-    global _proxy_pids_cache, _proxy_pids_time
-    if time.time() - _proxy_pids_time > 15:
-        pids = set()
-        proxy_names = ['xray', '3proxy', 'danted', 'shadowbox', 'docker-proxy', 'mtproto-proxy']
-        for proc in psutil.process_iter(['pid', 'name']):
-            try:
-                name = proc.info['name'].lower()
-                if any(p in name for p in proxy_names):
-                    pids.add(proc.info['pid'])
-            except: pass
-        _proxy_pids_cache = pids
-        _proxy_pids_time = time.time()
-    return _proxy_pids_cache
-
-def get_outline_connections():
-    """Кэширует запрос к Docker на 3 секунды"""
-    global _outline_cache, _outline_time
-    if time.time() - _outline_time < 3:
-        return _outline_cache
-
-    inbound, outbound = {}, {}
-    container_name = "shadowbox"
-    try:
-        res = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'], capture_output=True, text=True)
-        if 'shadowbox' not in res.stdout:
-            res2 = subprocess.run(['docker', 'ps', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
-            if res2.stdout.strip(): container_name = res2.stdout.strip().split('\n')[0]
-            
-        net_res = subprocess.run(['docker', 'exec', container_name, 'netstat', '-tun'], capture_output=True, text=True)
-        for line in net_res.stdout.split('\n'):
-            line = line.strip()
-            if 'ESTABLISHED' in line or line.startswith('udp'):
-                parts = line.split()
-                if len(parts) >= 5:
-                    local_addr, foreign_addr = parts[3], parts[4]
-                    if ':' not in local_addr or ':' not in foreign_addr: continue
-                    f_ip, f_port = foreign_addr.rsplit(':', 1)
-                    l_ip, l_port = local_addr.rsplit(':', 1)
-                    f_ip = f_ip.replace('::ffff:', '')
-                    if f_ip in ('127.0.0.1', '::1', '0.0.0.0', '*'): continue
-                    try:
-                        f_port_num, l_port_num = int(f_port), int(l_port)
-                        if f_port_num < 10240 and l_port_num > 10240: outbound[f_ip] = outbound.get(f_ip, 0) + 1
-                        else: inbound[f_ip] = inbound.get(f_ip, 0) + 1
-                    except: pass
-    except: pass
-    
-    _outline_cache = (inbound, outbound)
-    _outline_time = time.time()
-    return _outline_cache
-
-def get_active_vpn_users():
-    proxy_pids = get_proxy_pids() 
-    inbound_ips, outbound_ips = {}, {}
-    
-    local_ips = set()
-    for interface, snics in psutil.net_if_addrs().items():
-        for snic in snics:
-            if snic.family == socket.AF_INET: local_ips.add(snic.address)
-
-    listening_ports = set()
-    for conn in psutil.net_connections(kind='inet'):
-        if conn.pid in proxy_pids:
-            if conn.status == 'LISTEN' or conn.type == socket.SOCK_DGRAM:
-                listening_ports.add(conn.laddr.port)
-
-    for conn in psutil.net_connections(kind='inet'):
-        if conn.pid in proxy_pids and conn.raddr:
-            remote_ip = conn.raddr.ip
-            local_ip = conn.laddr.ip
-            if remote_ip in local_ips or remote_ip.startswith('127.') or remote_ip.startswith('::1'): continue
-            if remote_ip.startswith('172.') and local_ip.startswith('172.'): continue
-            
-            if conn.laddr.port in listening_ports:
-                inbound_ips[remote_ip] = inbound_ips.get(remote_ip, 0) + 1
-            else:
-                outbound_ips[remote_ip] = outbound_ips.get(remote_ip, 0) + 1
-
-    out_inbound, out_outbound = get_outline_connections()
-    for ip, count in out_inbound.items(): inbound_ips[ip] = inbound_ips.get(ip, 0) + count
-    for ip, count in out_outbound.items(): outbound_ips[ip] = outbound_ips.get(ip, 0) + count
-
-    return inbound_ips, outbound_ips
-
-@lru_cache(maxsize=2000)
-def reverse_dns(ip):
-    try:
-        if ip.startswith(('192.168.', '10.', '172.', '127.')): return None
-        socket.setdefaulttimeout(0.05) 
-        hostname = socket.gethostbyaddr(ip)[0]
-        return hostname if hostname != ip else None
-    except: return None
-
-def get_recent_connections(skip_dns=False):
-    """Парсер логов Xray с сортировкой: СНАЧАЛА НОВЫЕ"""
-    try:
-        result = subprocess.run(['tail', '-100', '/var/log/xray/access.log'], capture_output=True, text=True)
-        connections = []
-        seen = set()
-        for line in reversed(result.stdout.split('\n')):
-            if not line.strip(): continue
-            match = re.search(r'(\d{2}:\d{2}:\d{2}).*?(?:from\s+)?([a-fA-F0-9\.:]+):\d+\s+accepted\s+[a-zA-Z0-9]+:([a-zA-Z0-9\.\-]+):(\d+)\s+\[([^\]]+)\]', line)
-            if match:
-                time_str, client_ip, dest_ip, port, route = match.groups()
-                
-                user = "-"
-                email_match = re.search(r'email:\s*([^\s]+)', line)
-                if email_match: user = email_match.group(1)
-                
-                key = f"{client_ip}:{dest_ip}:{port}:{route}"
-                if key in seen: continue
-                seen.add(key)
-                
-                if skip_dns or dest_ip.replace('.', '').isdigit() == False:
-                    domain = dest_ip
-                else:
-                    domain = reverse_dns(dest_ip)
-                    
-                connections.append({
-                    'time': time_str, 'client': client_ip, 'user': user, 'dest': f"{dest_ip}:{port}",
-                    'domain': domain, 'route': route, 'route_class': 'direct' if route == 'direct' else 'vless'
-                })
-        return connections[:30]
-    except: return []
-
-def get_3proxy_connections():
-    possible_paths = ['/var/log/3proxy.log', '/var/log/3proxy/3proxy.log', '/var/log/3proxy']
-    log_file = next((path for path in possible_paths if os.path.isfile(path)), None)
-    if not log_file: return [{"time": "-", "user": "-", "client": "-", "dest": "ОШИБКА", "status": "Файл лога 3proxy не найден"}]
-
-    try:
-        res = subprocess.run(['tail', '-100', log_file], capture_output=True, text=True)
-        connections = []
-        for line in reversed(res.stdout.split('\n')):
-            if not line.strip(): continue
-            parts = line.split()
-            if len(parts) >= 10:
-                try: time_str = datetime.fromtimestamp(float(parts[0])).strftime('%d.%m %H:%M:%S')
-                except: time_str = parts[0]
-                user, event = parts[3], parts[9]
-                if 'Accepting_connections' in event: continue
-                if event.startswith('CONNECT_'): event = 'CONNECT'
-                elif event.startswith('UNKNOWN_'): event = 'UNKNOWN'
-                connections.append({
-                    'time': time_str, 'user': user if user != '-' else 'Unknown',
-                    'client': parts[4], 'dest': parts[5], 'status': event
-                })
-        return connections[:50]
-    except Exception as e: return [{"time": "-", "user": "-", "client": "-", "dest": "ОШИБКА", "status": str(e)}]
-
-def get_danted_connections():
-    try:
-        res = subprocess.run(['tail', '-100', '/var/log/socks.log'], capture_output=True, text=True)
-        connections = []
-        for line in reversed(res.stdout.split('\n')):
-            if not line.strip(): continue
-            time_match = re.search(r'^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})', line)
-            time_str = time_match.group(1) if time_match else ""
-            status = "pass" if "pass(" in line else "block" if "block(" in line else "info"
-            client, dest, user = "unknown", "unknown", "-"
-            
-            user_m = re.search(r'username%([^@\s]+)@', line)
-            if user_m: user = user_m.group(1)
-            
-            if "tcp/connect" in line:
-                client_m = re.search(r'@(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\.\d+', line)
-                if client_m: client = client_m.group(1)
-                dest_m = re.search(r'->\s+[\d\.]+\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d+)', line)
-                if dest_m: dest = f"{dest_m.group(1)}:{dest_m.group(2)}"
-            elif "tcp/accept" in line:
-                m = re.search(r'[:\]]\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\.\d+\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
-                if m: client, dest = m.group(1), f"Local: {m.group(2)}"
-
-            if client != "unknown":
-                raw_log = line.split(']: ')[-1] if ']: ' in line else line
-                if user != "-": raw_log = re.sub(r'username%[^@]+@', '', raw_log)
-                connections.append({'time': time_str, 'client': client, 'dest': dest, 'user': user, 'status': status, 'raw': raw_log})
-        return connections[:50]
-    except: return []
-
-def get_dns_queries():
-    try:
-        result = subprocess.run(['tail', '-200', '/var/log/dnsmasq.log'], capture_output=True, text=True)
-        queries, seen = [], set()
-        for line in result.stdout.split('\n'):
-            match = re.search(r'(\d{2}:\d{2}:\d{2}).*query\[(\w+)\] ([^\s]+) from ([\d.]+)', line)
-            if match:
-                time, qtype, domain, client = match.groups()
-                key = f"{domain}:{client}"
-                if key not in seen and not domain.startswith('in-addr.arpa'):
-                    seen.add(key)
-                    queries.append({'time': time, 'client': client, 'domain': domain, 'type': qtype})
-        return queries[:50]
-    except: return []
-
-def analyze_proxy_logs():
-    ip_to_users, target_to_users = {}, {}
-    def add_user_to_ip(ip, user):
-        if user and user not in ('-', 'Unknown', 'unknown'):
-            if ip not in ip_to_users: ip_to_users[ip] = set()
-            ip_to_users[ip].add(user)
-    def add_target(target, client_ip, user):
-        target_ip = target.split(':')[0]
-        if target_ip not in target_to_users: target_to_users[target_ip] = set()
-        if user and user not in ('-', 'Unknown', 'unknown'): target_to_users[target_ip].add(user)
-        else: target_to_users[target_ip].add(client_ip)
-
-    try:
-        for c in get_3proxy_connections():
-            client_ip, user = c['client'].split(':')[0], c['user']
-            add_user_to_ip(client_ip, user)
-            if c['dest'] != 'ОШИБКА': add_target(c['dest'], client_ip, user)
-    except: pass
-    try:
-        for c in get_danted_connections():
-            client_ip, user = c['client'].split(':')[0], c['user']
-            add_user_to_ip(client_ip, user)
-            if c['dest'] != 'unknown' and not str(c['dest']).startswith('Local:'): add_target(c['dest'], client_ip, user)
-    except: pass
-    try:
-        for c in get_recent_connections(skip_dns=True):
-            client_ip = c['client']
-            user = c.get('user', '-')
-            add_user_to_ip(client_ip, user)
-            add_target(c['dest'], client_ip, user)
-    except: pass
-    
-    final_target_to_user = {}
-    for target, userset in target_to_users.items():
-        final_set = set()
-        for u in userset:
-            if u in ip_to_users:
-                for known_user in ip_to_users[u]: final_set.add(known_user)
-            else: final_set.add(u)
-        final_target_to_user[target] = list(final_set)
-    final_ip_to_users = {ip: ", ".join(users) for ip, users in ip_to_users.items()}
-    return final_ip_to_users, final_target_to_user
 
 # ========================================
-# АНАЛИТИКА САЙТА (NGINX + XRAY FALLBACKS)
+# АНАЛИТИКА САЙТА И БЕЗОПАСНОСТИ (ГЛАВНАЯ СТРАНИЦА)
 # ========================================
+APP_START_TIME = time.time()
 
 def format_uptime(seconds):
     m, s = divmod(int(seconds), 60)
@@ -560,12 +537,10 @@ def get_app_uptime():
     return format_uptime(time.time() - APP_START_TIME)
 
 def get_nginx_unique_stats():
-    """Считает уникальные IP и делит их на людей (код 200) и ботов (коды 301, 40x, 50x)"""
     humans = set()
     bots = set()
     try:
         if os.path.exists('/var/log/nginx/access.log'):
-            # Читаем последние 5000 строк для надежной статистики
             res = subprocess.run(['tail', '-n', '5000', '/var/log/nginx/access.log'], capture_output=True, text=True)
             for line in res.stdout.split('\n'):
                 if not line.strip(): continue
@@ -573,49 +548,72 @@ def get_nginx_unique_stats():
                 if len(parts) >= 3:
                     ip_date = parts[0].strip()
                     status_code = parts[2].strip().split()[0]
-                    
                     ip_match = re.search(r'^([\d\.]+)', ip_date)
                     if ip_match:
                         ip = ip_match.group(1)
-                        # Игнорируем локальные IP (чтобы панель не считала саму себя)
                         if ip == '127.0.0.1': continue
-                        
-                        # Коды 200 (ОК) - это люди
-                        if status_code.startswith('2'):
-                            humans.add(ip)
-                        # Ошибки и 301 (Редирект/Сканеры) - это боты
-                        elif status_code.startswith(('301', '4', '5')):
-                            bots.add(ip)
+                        if status_code.startswith('2'): humans.add(ip)
+                        elif status_code.startswith(('301', '4', '5')): bots.add(ip)
     except: pass
-    
-    # Если IP попал и в боты, и в люди (например, человек сначала словил 404, а потом зашел нормально)
-    # мы считаем его человеком
     pure_bots = bots - humans
-    
-    return {
-        "total": len(humans) + len(pure_bots),
-        "humans": len(humans),
-        "bots": len(pure_bots)
-    }
-                           
-def parse_nginx_date(date_str):
-    months = {'Jan':'01', 'Feb':'02', 'Mar':'03', 'Apr':'04', 'May':'05', 'Jun':'06', 
-              'Jul':'07', 'Aug':'08', 'Sep':'09', 'Oct':'10', 'Nov':'11', 'Dec':'12'}
+    return {"total": len(humans) + len(pure_bots), "humans": len(humans), "bots": len(pure_bots)}
+
+def parse_date(date_str, format_type):
+    """Приводит даты к формату ДД.ММ ЧЧ:ММ:СС"""
     try:
-        parts = date_str.split('/')
-        day = parts[0]
-        month = months[parts[1]]
-        year_time = parts[2].split(':')
-        year = year_time[0]
-        time = ":".join(year_time[1:])
-        return f"{year}/{month}/{day} {time}"
-    except:
-        return date_str
+        if format_type == 'nginx':
+            # 02/Mar/2026:14:28:52 -> 02.03 14:28:52
+            months = {'Jan':'01', 'Feb':'02', 'Mar':'03', 'Apr':'04', 'May':'05', 'Jun':'06', 
+                      'Jul':'07', 'Aug':'08', 'Sep':'09', 'Oct':'10', 'Nov':'11', 'Dec':'12'}
+            parts = date_str.split('/')
+            day = parts[0]
+            month = months[parts[1]]
+            time = parts[2].split(':', 1)[1]
+            return f"{day}.{month} {time}"
+        elif format_type == 'xray':
+            # 2026/03/02 14:28:52 -> 02.03 14:28:52
+            date, time = date_str.split()
+            _, m, d = date.split('/')
+            return f"{d}.{m} {time}"
+        elif format_type == 'ssh':
+            # Feb 28 14:28:52 -> 28.02 14:28:52 (примерно)
+            return date_str
+    except: return date_str
+
 
 @app.route('/api/site_analytics', methods=['GET'])
 @login_required
 def api_site_analytics():
-    nginx_logs = {}
+    """Сверх-умный анализатор: Группирует логи Xray, Nginx, SSH и UFW по IP адресам"""
+    
+    # Хранилище всех событий по IP
+    # Формат: { "1.1.1.1": {"events": ["event1", "event2"], "last_time": "12:00", "source": "Nginx", "color": "danger", "type": "Бот"} }
+    analytics_by_ip = {}
+
+    def add_event(ip, time_str, source, evt_type, color, desc):
+        if ip not in analytics_by_ip:
+            analytics_by_ip[ip] = {
+                "events": [], "last_time": time_str, 
+                "source": set(), "type": set(), "color": color
+            }
+        
+        # Обновляем время на самое свежее
+        analytics_by_ip[ip]["last_time"] = time_str
+        analytics_by_ip[ip]["source"].add(source)
+        analytics_by_ip[ip]["type"].add(evt_type)
+        
+        # Цвет повышаем до самого "опасного" (danger > warning > info > success)
+        colors_weight = {"danger": 4, "warning": 3, "info": 2, "success": 1}
+        cur_weight = colors_weight.get(analytics_by_ip[ip]["color"], 0)
+        new_weight = colors_weight.get(color, 0)
+        if new_weight > cur_weight:
+            analytics_by_ip[ip]["color"] = color
+            
+        # Добавляем само событие, если его еще нет (защита от дублей)
+        if desc not in analytics_by_ip[ip]["events"]:
+            analytics_by_ip[ip]["events"].append(desc)
+
+    # 1. Читаем Nginx (Веб-сервер)
     try:
         if os.path.exists('/var/log/nginx/access.log'):
             res_nginx = subprocess.run(['tail', '-n', '1000', '/var/log/nginx/access.log'], capture_output=True, text=True)
@@ -626,83 +624,130 @@ def api_site_analytics():
                     ip_date = parts[0].strip()
                     request_info = parts[1]
                     status_code = parts[2].strip().split()[0]
+                    
                     ip_match = re.search(r'^([\d\.]+)', ip_date)
                     date_match = re.search(r'\[(.*?) \+', ip_date)
+                    
                     if ip_match and date_match:
                         ip = ip_match.group(1)
-                        n_date = parse_nginx_date(date_match.group(1))
-                        if ip not in nginx_logs: nginx_logs[ip] = []
-                        nginx_logs[ip].append({"time": n_date, "request": request_info, "status": status_code})
+                        if ip == '127.0.0.1': continue # Пропускаем локальные
+                        
+                        time_str = parse_date(date_match.group(1), 'nginx')
+                        
+                        # Если это POST запрос, пытаемся вытащить тело (если оно логируется, обычно нет, но оставим задел)
+                        req_type = "HTTP"
+                        if request_info.startswith('POST'): req_type = "POST"
+                            
+                        desc = f"{req_type} запрос: {request_info} (Ответ: {status_code})"
+                        
+                        if status_code == '301' or status_code.startswith(('4', '5')):
+                            add_event(ip, time_str, "Nginx", "Сканер / Бот", "danger", desc)
+                        else:
+                            add_event(ip, time_str, "Nginx", "Посетитель", "success", desc)
     except: pass
 
-    xray_sessions = {}
+    # 2. Читаем Xray (Попытки сломать VPN)
     try:
-        res_xray = subprocess.run(['journalctl', '-u', 'xray', '-n', '2000', '--no-pager'], capture_output=True, text=True)
+        res_xray = subprocess.run(['journalctl', '-u', 'xray', '-n', '1000', '--no-pager'], capture_output=True, text=True)
         for line in res_xray.stdout.split('\n'):
             if not line.strip(): continue
-            match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\.\d+\s+\[.*?\]\s+\[(\d+)\]\s+(.*)', line)
+            match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\.\d+\s+\[.*?\]\s+\[\d+\]\s+(.*)', line)
             if match:
-                time_str, conn_id, msg = match.groups()
-                if conn_id not in xray_sessions:
-                    xray_sessions[conn_id] = {"time": time_str, "ip": None, "is_fallback": False, "real_name": "", "error": None, "is_vpn": True}
-                session = xray_sessions[conn_id]
-                if 'fallback starts' in msg:
-                    session['is_fallback'] = True
-                    session['is_vpn'] = False
-                elif 'realName =' in msg:
-                    session['real_name'] = msg.split('=')[-1].strip()
-                elif 'not look like a TLS handshake' in msg or 'invalid request version' in msg:
-                    session['error'] = "Неизвестный протокол (Не TLS)"
-                    session['is_vpn'] = False
+                time_raw = match.group(1)
+                time_str = parse_date(time_raw, 'xray')
+                msg = match.group(2)
+                
+                # Пытаемся вытащить IP хакера
                 ip_match = re.search(r'->([\d\.]+):\d+', msg)
-                if ip_match: session['ip'] = ip_match.group(1)
+                if ip_match:
+                    ip = ip_match.group(1)
+                    
+                    if 'invalid request version' in msg or 'not look like a TLS handshake' in msg:
+                        add_event(ip, time_str, "Xray", "Сканер портов", "danger", "Попытка простучать 443 порт (Не TLS трафик)")
+                    elif 'fallback starts' in msg:
+                        # Добавляем факт фоллбэка, только если Nginx еще не отметил этот IP как Бота
+                        add_event(ip, time_str, "Xray", "Редирект", "warning", "Трафик не распознан VPN. Переброшен на Nginx.")
+    except: pass
+    
+    # 3. Читаем UFW (Фаервол)
+    try:
+        res_ufw = subprocess.run(['grep', 'UFW BLOCK', '/var/log/kern.log', '/var/log/ufw.log'], capture_output=True, text=True)
+        # Берем только последние 200 блоков
+        for line in res_ufw.stdout.split('\n')[-200:]:
+            if not line.strip(): continue
+            # Извлекаем IP (SRC=1.1.1.1) и Порт (DPT=443)
+            src_m = re.search(r'SRC=([\d\.]+)', line)
+            dpt_m = re.search(r'DPT=(\d+)', line)
+            proto_m = re.search(r'PROTO=(\w+)', line)
+            
+            # Извлекаем время (обычно в начале строки: Feb 28 12:00:00)
+            time_m = re.search(r'^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})', line)
+            
+            if src_m:
+                ip = src_m.group(1)
+                dpt = dpt_m.group(1) if dpt_m else "?"
+                proto = proto_m.group(1) if proto_m else "TCP"
+                time_str = time_m.group(1) if time_m else "Недавно"
+                
+                add_event(ip, time_str, "UFW (Фаервол)", "Блокировка", "danger", f"Заблокирована попытка входа по {proto} на закрытый порт {dpt}")
     except: pass
 
-    final_logs = []
-    processed_nginx_ips = set()
-
-    for conn_id, s in xray_sessions.items():
-        ip = s['ip'] or "Неизвестный IP"
-        time_str = s['time']
-        if s['is_fallback']:
-            n_log = nginx_logs.get(ip)
-            if n_log:
-                last_req = n_log[-1]
-                processed_nginx_ips.add(ip)
-                status = last_req['status']
-                if status.startswith('2') or (status.startswith('3') and status != '301'):
-                    final_logs.append({
-                        "time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "success",
-                        "type": "Посетитель", "desc": f"Успешный вход на сайт. Запрос: {last_req['request']} (Код: {status})"
-                    })
-                # Если 301, 400+, 500+ - это бот/сканер
-                elif status == '301' or status.startswith(('4', '5')):
-                    final_logs.append({
-                        "time": time_str, "ip": ip, "source": "Xray ➔ Nginx", "color": "danger",
-                        "type": "Сканер / Бот", "desc": f"Попытка сканирования сайта. Запрос: {last_req['request']} (Код: {status})"
-                    })
-            else:
-                final_logs.append({"time": time_str, "ip": ip, "source": "Xray", "color": "warning", "type": "Fallback (Сброс)", "desc": f"SNI: {s['real_name']}. Трафик перенаправлен, но до Nginx не дошел."})
-        elif s['error']:
-            final_logs.append({"time": time_str, "ip": ip, "source": "Xray", "color": "danger", "type": "Сканер портов", "desc": f"Попытка простучать 443 порт. Ошибка: {s['error']}"})
+    # 4. Читаем SSH (Брутфорс паролей)
+    try:
+        res_ssh = subprocess.run(['tail', '-n', '500', '/var/log/auth.log'], capture_output=True, text=True)
+        for line in res_ssh.stdout.split('\n'):
+            if not line.strip(): continue
+            if 'sshd' not in line: continue
             
-    # 4. ДОБАВЛЯЕМ ПРЯМЫЕ ЗАПРОСЫ В NGINX (на порт 80)
-    for ip, reqs in nginx_logs.items():
-        if ip not in processed_nginx_ips:
-            for req in reqs:
-                status = req['status']
-                if status == '301' or status.startswith(('4', '5')):
-                    final_logs.append({
-                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "danger",
-                        "type": "Сканер / Бот", "desc": f"Прямой запрос по HTTP. Запрос: {req['request']} (Код: {status})"
-                    })
-                elif status.startswith('2') or (status.startswith('3') and status != '301'):
-                    final_logs.append({
-                        "time": req['time'], "ip": ip, "source": "Nginx (80 порт)", "color": "success",
-                        "type": "Посетитель", "desc": f"Прямой заход по HTTP. Запрос: {req['request']} (Код: {status})"
-                    })
+            # Извлекаем время
+            time_m = re.search(r'^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})', line)
+            time_str = time_m.group(1) if time_m else "Недавно"
+            
+            # Ищем Failed password
+            if 'Failed password' in line:
+                ip_m = re.search(r'from ([\d\.]+)', line)
+                user_m = re.search(r'for (?:invalid user )?([^\s]+) from', line)
+                if ip_m and user_m:
+                    add_event(ip_m.group(1), time_str, "SSH", "Брутфорс", "danger", f"Неудачный подбор пароля для пользователя: '{user_m.group(1)}'")
+            
+            # Ищем Connection closed by invalid user
+            elif 'Connection closed by invalid user' in line:
+                ip_m = re.search(r'user [^\s]+ ([\d\.]+)', line)
+                user_m = re.search(r'user ([^\s]+) [\d\.]+', line)
+                if ip_m and user_m:
+                    add_event(ip_m.group(1), time_str, "SSH", "Брутфорс", "danger", f"Отклонен инвалидный пользователь: '{user_m.group(1)}'")
+    except: pass
 
-    final_logs.sort(key=lambda x: x['time'], reverse=True)
+
+    # ================== ФОРМИРУЕМ ФИНАЛЬНЫЙ СПИСОК ==================
+    final_logs = []
+    for ip, data in analytics_by_ip.items():
+        # Объединяем источники (например: Nginx, UFW)
+        sources_str = " + ".join(data["source"])
+        
+        # Главный тип угрозы
+        types_list = list(data["type"])
+        main_type = "Угроза" if "Брутфорс" in types_list or "Блокировка" in types_list else types_list[0]
+        if data["color"] == "danger": main_type = "Сканер / Бот / Брутфорс"
+        if "Посетитель" in types_list and data["color"] != "danger": main_type = "Посетитель"
+
+        # Склеиваем события (Оставляем максимум 4 последних уникальных действия, чтобы не растягивать таблицу)
+        events_str = "<br>".join(f"• {e}" for e in data["events"][-4:])
+        if len(data["events"]) > 4:
+            events_str += f"<br><i>... и еще {len(data['events'])-4} похожих действий</i>"
+
+        final_logs.append({
+            "time": data["last_time"],
+            "ip": ip,
+            "source": sources_str,
+            "type": main_type,
+            "color": data["color"],
+            "desc": events_str
+        })
+
+    # Сортируем: сначала Опасные (danger), затем по времени
+    final_logs.sort(key=lambda x: (x['color'] == 'danger', x['time']), reverse=True)
+
     return jsonify({"success": True, "logs": final_logs[:100]})
 
 
@@ -780,7 +825,6 @@ def vpn():
 @login_required
 def vpn_users_page():
     return render_template('vpn_users.html')
-
 
 # ========================================
 # МАРШРУТЫ (API)
@@ -860,35 +904,19 @@ def api_system_stats():
             upload_speed = ((net_io.bytes_sent - last_net_io.bytes_sent) * 8) / time_diff
             download_speed = ((net_io.bytes_recv - last_net_io.bytes_recv) * 8) / time_diff
     last_net_io, last_net_time = net_io, current_time
+    stats = {"cpu": {"percent": cpu_percent, "cores": cpu_cores, "load_avg": f"{round(load1, 2)} / {round(load5, 2)} / {round(load15, 2)}"}, "ram": {"percent": mem.percent, "used": mem.used, "total": mem.total}, "swap": {"percent": swap.percent, "used": swap.used, "total": swap.total}, "disk": {"percent": disk.percent, "used": disk.used, "total": disk.total}, "network": {"upload": upload_speed, "download": download_speed}}
     
-    stats = {
-        "cpu": {"percent": cpu_percent, "cores": cpu_cores, "load_avg": f"{round(load1, 2)} / {round(load5, 2)} / {round(load15, 2)}"},
-        "ram": {"percent": mem.percent, "used": mem.used, "total": mem.total},
-        "swap": {"percent": swap.percent, "used": swap.used, "total": swap.total},
-        "disk": {"percent": disk.percent, "used": disk.used, "total": disk.total},
-        "network": {"upload": upload_speed, "download": download_speed}
-    }
-    processes = []
-    current_pids = set()
+    if 'proc_cache' not in globals(): global proc_cache; proc_cache = {}
+    processes, current_pids = [], set()
     for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'memory_percent', 'memory_info']):
         try:
             pid = proc.info['pid']
             current_pids.add(pid)
-            if pid not in proc_cache:
-                proc_cache[pid] = proc
-                proc.cpu_percent()
-                cpu_usage = 0.0
-            else:
-                cpu_usage = proc_cache[pid].cpu_percent()
-                if cpu_cores > 0: cpu_usage = cpu_usage / cpu_cores
-
+            if pid not in proc_cache: proc_cache[pid] = proc; proc.cpu_percent(); cpu_usage = 0.0
+            else: cpu_usage = proc_cache[pid].cpu_percent() / cpu_cores if cpu_cores > 0 else 0.0
             cmd = proc.info.get('cmdline')
-            path = " ".join(cmd) if cmd else proc.info.get('name', '')
             ram_mb = proc.info['memory_info'].rss / (1024 * 1024) if proc.info.get('memory_info') else 0
-            processes.append({
-                "pid": pid, "name": proc.info['name'], "path": path, 
-                "cpu": round(cpu_usage, 1), "ram_percent": round(proc.info['memory_percent'] or 0.0, 1), "ram_mb": round(ram_mb, 1)
-            })
+            processes.append({"pid": pid, "name": proc.info['name'], "path": " ".join(cmd) if cmd else proc.info.get('name', ''), "cpu": round(cpu_usage, 1), "ram_percent": round(proc.info['memory_percent'] or 0.0, 1), "ram_mb": round(ram_mb, 1)})
         except: pass
     proc_cache = {pid: proc for pid, proc in proc_cache.items() if pid in current_pids}
     processes.sort(key=lambda x: x['cpu'], reverse=True)
@@ -917,18 +945,14 @@ def api_system_logs():
                 if isinstance(msg, list): msg = bytes(msg).decode('utf-8', errors='replace')
                 elif not isinstance(msg, str): msg = str(msg)
                 msg = clean_logs(msg)
-                
                 source = entry.get('SYSLOG_IDENTIFIER', entry.get('_SYSTEMD_UNIT', 'unknown'))
                 if search and search not in msg.lower() and search not in source.lower(): continue
-                
                 timestamp = int(entry.get('__REALTIME_TIMESTAMP', 0)) // 1000000
                 date_str = datetime.fromtimestamp(timestamp).strftime('%d.%m %H:%M:%S') if timestamp else ""
-                
                 prio_num = int(entry.get('PRIORITY', 6))
                 if prio_num <= 3: prio_str = "ERROR"
                 elif prio_num == 4: prio_str = "WARNING"
                 else: prio_str = "INFO"
-
                 logs.append({"time": date_str, "priority": prio_str, "source": source, "message": msg})
             except: pass
         return jsonify({"success": True, "logs": logs})
@@ -947,48 +971,13 @@ def reset_outline_stats():
         return jsonify({"success": True})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
 
-@app.route('/api/vpn/action', methods=['POST'])
-@login_required
-def api_vpn_action():
-    service = request.json.get('service')
-    action = request.json.get('action') 
-    try:
-        if service in ['xray', '3proxy', 'danted']:
-            run_command(f"systemctl {action} {service}")
-        elif service in ['outline', 'mtproto']:
-            container = "shadowbox" if service == "outline" else "mtproto-proxy"
-            if service == "outline":
-                res = subprocess.run(['docker', 'ps', '-a', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
-                if res.stdout.strip(): container = res.stdout.strip().split('\n')[0]
-            run_command(f"docker {action} {container}")
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-@app.route('/api/ip_info/<ip>', methods=['GET'])
-@login_required
-def api_ip_info(ip):
-    try:
-        url = f"https://ipinfo.io/{ip}/json"
-        req = urllib.request.Request(url, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Accept': 'application/json'
-        })
-        with urllib.request.urlopen(req, timeout=3) as response:
-            data = json.loads(response.read().decode())
-            if data.get('bogon'):
-                return jsonify({"success": False, "error": "Локальный IP адрес"})
-            return jsonify({"success": True, "data": data})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
 @app.route('/api/vpn_users', methods=['GET'])
 @login_required
 def api_vpn_users():
     inbound, outbound = get_active_vpn_users()
     limits = get_limits()
     known_users, target_to_user = analyze_proxy_logs()
-    custom_names = get_custom_names() 
+    custom_names = get_custom_names()
     
     inbound_list = []
     for ip in set(inbound.keys()).union(set(limits.keys())):
@@ -1004,28 +993,10 @@ def api_vpn_users():
         domain = reverse_dns(ip)
         users_list = target_to_user.get(ip, [])
         if not users_list and domain and domain in target_to_user: users_list = target_to_user[domain]
-        
-        final_users = []
-        for u in users_list:
-            final_users.append(custom_names.get(u, u))
-            
+        final_users = [custom_names.get(u, u) for u in users_list]
         outbound_list.append({"ip": ip, "domain": domain if domain else "", "connections": count, "users": ", ".join(final_users) if final_users else "Неизвестно"})
     outbound_list.sort(key=lambda x: x['connections'], reverse=True)
-
     return jsonify({"success": True, "inbound": inbound_list, "outbound": outbound_list})
-
-@app.route('/api/set_custom_name', methods=['POST'])
-@login_required
-def api_set_custom_name():
-    ip = request.json.get('ip')
-    name = request.json.get('name')
-    names = get_custom_names()
-    if not name or name.strip() == "":
-        if ip in names: del names[ip]
-    else:
-        names[ip] = name.strip()
-    save_custom_names(names)
-    return jsonify({"success": True})
 
 @app.route('/api/set_speed_limit', methods=['POST'])
 @login_required
@@ -1039,12 +1010,49 @@ def api_set_speed_limit():
         new_id = 11
         while new_id in existing_ids: new_id += 1
         limits[ip] = {"class_id": new_id, "speed": int(speed)}
-        
     save_limits(limits)
     sync_tc_rules() 
     return jsonify({"success": True})
 
+@app.route('/api/set_custom_name', methods=['POST'])
+@login_required
+def api_set_custom_name():
+    ip = request.json.get('ip')
+    name = request.json.get('name')
+    names = get_custom_names()
+    if not name or name.strip() == "":
+        if ip in names: del names[ip]
+    else: names[ip] = name.strip()
+    save_custom_names(names)
+    return jsonify({"success": True})
+
+@app.route('/api/ip_info/<ip>', methods=['GET'])
+@login_required
+def ip_info(ip):
+    try:
+        url = f"https://ipinfo.io/{ip}/json"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Accept': 'application/json'})
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read().decode())
+            if data.get('bogon'): return jsonify({"success": False, "error": "Локальный IP адрес"})
+            return jsonify({"success": True, "data": data})
+    except Exception as e: return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/vpn/action', methods=['POST'])
+@login_required
+def api_vpn_action():
+    service = request.json.get('service')
+    action = request.json.get('action') 
+    try:
+        if service in ['xray', '3proxy', 'danted']: run_command(f"systemctl {action} {service}")
+        elif service in ['outline', 'mtproto']:
+            container = "shadowbox" if service == "outline" else "mtproto-proxy"
+            if service == "outline":
+                res = subprocess.run(['docker', 'ps', '-a', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
+                if res.stdout.strip(): container = res.stdout.strip().split('\n')[0]
+            run_command(f"docker {action} {container}")
+        return jsonify({"success": True})
+    except Exception as e: return jsonify({"success": False, "error": str(e)})
+
 if __name__ == '__main__':
-    # Если вы используете Nginx + Gunicorn, эта строчка игнорируется.
-    # Она нужна только если вы запускаете скрипт вручную для тестов: python3 server.py
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
