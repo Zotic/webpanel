@@ -576,23 +576,30 @@ def parse_syslog_date(date_str):
 @app.route('/api/site_analytics', methods=['GET'])
 @login_required
 def api_site_analytics():
-    """Сверх-умный анализатор: Группирует логи Xray, Nginx, SSH и UFW по IP адресам. ВЫВОДИТ ВСЁ."""
-    analytics_by_ip = {}
+    """Сверх-умный анализатор: Собирает логи Xray, Nginx, SSH и UFW в единую ленту событий."""
+    
+    final_logs = []
 
     def add_event(ip, time_str, source, severity, msg):
-        if ip not in analytics_by_ip:
-            analytics_by_ip[ip] = {"events": [], "severity": 0, "last_time": time_str}
+        # Назначаем цвет и вердикт на основе серьезности
+        color = "success"
+        verdict = "Посетитель сайта / VPN"
         
-        # Повышаем уровень опасности IP, если это сканер или брутфорс
-        if severity > analytics_by_ip[ip]["severity"]:
-            analytics_by_ip[ip]["severity"] = severity
-            
-        # Добавляем событие (проверяем на дубли)
-        if not any(e['msg'] == msg for e in analytics_by_ip[ip]["events"]):
-            analytics_by_ip[ip]["events"].append({"time": time_str, "msg": msg, "source": source})
-            
-        # Обновляем время последней активности на самое свежее
-        analytics_by_ip[ip]["last_time"] = max(analytics_by_ip[ip]["last_time"], time_str)
+        if severity == 2:
+            color = "danger"
+            verdict = "Сканер / Бот / Брутфорс"
+        elif severity == 1:
+            color = "warning"
+            verdict = "Подозрительная активность"
+
+        final_logs.append({
+            "time": time_str,
+            "ip": ip,
+            "source": source,
+            "verdict": verdict,
+            "color": color,
+            "msg": msg
+        })
 
     # 1. NGINX (АБСОЛЮТНО ВСЕ ЗАПРОСЫ)
     try:
@@ -611,15 +618,13 @@ def api_site_analytics():
                     
                     if ip_match and date_match:
                         ip = ip_match.group(1)
-                        if ip == '127.0.0.1': continue # Локальные запросы от самого сервера пропускаем
+                        if ip == '127.0.0.1': continue # Локальные запросы пропускаем
                         
                         time_str = parse_nginx_date(date_match.group(1))
                         
-                        # Выводим метод запроса
                         req_type = "POST" if request_info.startswith('POST') else "GET"
-                        desc = f"Запрос {req_type}: '{request_info}' (HTTP Ответ: {status_code})"
+                        desc = f"Запрос {req_type}: '{request_info}' (Ответ: {status_code})"
                         
-                        # Коды 301, 400+, 500+ считаем подозрительными (сканер)
                         severity = 2 if status_code == '301' or status_code.startswith(('4', '5')) else 0
                         add_event(ip, time_str, "Nginx", severity, desc)
     except: pass
@@ -633,15 +638,13 @@ def api_site_analytics():
             if match:
                 time_raw, client_ip, dest_ip, port = match.groups()
                 
-                # Приводим дату к единому формату: 2026/03/08 12:07:47 -> 08.03.2026 12:07:47
                 date_part, time_part = time_raw.split()
                 y, m, d = date_part.split('/')
                 time_str = f"{d}.{m}.{y} {time_part}"
                 
-                # Ищем юзернейм
                 user = ""
                 email_match = re.search(r'email:\s*([^\s]+)', line)
-                if email_match: user = f" (Пользователь: {email_match.group(1)})"
+                if email_match: user = f" (Юзер: {email_match.group(1)})"
                 
                 desc = f"Успешное VPN подключение к {dest_ip}:{port}{user}"
                 add_event(client_ip, time_str, "Xray", 0, desc)
@@ -650,18 +653,14 @@ def api_site_analytics():
     # 3. XRAY (ИЗ JOURNALCTL - ОШИБКИ И FALLBACK)
     try:
         res_xray_journal = subprocess.run(['journalctl', '-u', 'xray', '-n', '1000', '--no-pager'], capture_output=True, text=True)
-        
-        # Словарь для сборки "кусков" логов Xray по ID сессии
         xray_sessions = {}
         
         for line in res_xray_journal.stdout.split('\n'):
             if not line.strip(): continue
             
-            # Ищем структуру: 2026/03/08 12:07:47.686942 [Info] [1582461403] ...
             match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\.\d+\s+\[.*?\]\s+\[(\d+)\]\s+(.*)', line)
             if match:
                 time_raw = match.group(1)
-                # 2026/03/08 12:07:47 -> 08.03.2026 12:07:47
                 date_part, time_part = time_raw.split()
                 y, m, d = date_part.split('/')
                 time_str = f"{d}.{m}.{y} {time_part}"
@@ -674,27 +673,21 @@ def api_site_analytics():
                 
                 xray_sessions[conn_id]["messages"].append(msg)
                 
-                # Пытаемся вытащить IP (он обычно пишется при разрыве tcp или udp соединения)
-                # read tcp 45.85.117.150:443->185.12.59.118:58488
                 ip_match = re.search(r'->([\d\.]+):\d+', msg)
                 if ip_match:
                     xray_sessions[conn_id]["ip"] = ip_match.group(1)
                     
-        # Теперь анализируем собранные сессии
         for conn_id, s in xray_sessions.items():
             ip = s["ip"]
-            if not ip: continue # Если IP не нашли, пропускаем
+            if not ip: continue 
             
-            # Собираем все сообщения сессии в одну строку для поиска
             full_msg = " ".join(s["messages"])
             
             if 'not look like a TLS handshake' in full_msg or 'invalid request version' in full_msg:
                 add_event(ip, s["time"], "Xray", 2, "Ошибка TLS (Попытка не-VPN запроса или сканирования 443 порта)")
             elif 'fallback starts' in full_msg:
-                # Пытаемся вытащить SNI (домен, который запрашивал клиент)
                 sni_match = re.search(r'realName = ([^\s]+)', full_msg)
                 sni = f" (Домен: {sni_match.group(1)})" if sni_match else ""
-                
                 add_event(ip, s["time"], "Xray", 1, f"Трафик не распознан VPN. Переброшен в Nginx (Fallback){sni}")
     except: pass
 
@@ -713,7 +706,7 @@ def api_site_analytics():
                 proto = proto_m.group(1) if proto_m else "TCP"
                 time_str = parse_syslog_date(line)
                 
-                add_event(ip, time_str, "UFW", 2, f"Попытка входа на закрытый порт {dpt} по протоколу {proto}")
+                add_event(ip, time_str, "UFW", 2, f"Заблокирован вход на закрытый порт {dpt} ({proto})")
     except: pass
 
     # 5. SSH (БРУТФОРС)
@@ -738,37 +731,11 @@ def api_site_analytics():
                     add_event(ip_m.group(1), time_str, "SSH", 2, f"Отклонен инвалидный пользователь: '{user_m.group(1)}'")
     except: pass
 
-    # ================== ФОРМИРУЕМ ФИНАЛЬНЫЙ СПИСОК ==================
-    final_logs = []
-    
-    for ip, data in analytics_by_ip.items():
-        # Сортируем события внутри IP по времени
-        data["events"].sort(key=lambda x: x["time"], reverse=True)
-        
-        # Определяем цвет всей строки по самому жесткому событию
-        color = "success"
-        verdict = "Посетитель сайта / Пользователь VPN"
-        
-        if data["severity"] == 2:
-            color = "danger"
-            verdict = "Сканер портов / Бот / Брутфорс"
-        elif data["severity"] == 1:
-            color = "warning"
-            verdict = "Подозрительная активность"
+    # Сортируем: сначала самые свежие по времени
+    final_logs.sort(key=lambda x: x['time'], reverse=True)
 
-        final_logs.append({
-            "ip": ip,
-            "last_time": data["last_time"],
-            "verdict": verdict,
-            "color": color,
-            "events": data["events"] # Передаем полный список
-        })
-
-    # Сортируем: сначала Опасные (danger), затем по времени
-    final_logs.sort(key=lambda x: (x['color'] == 'danger', x['last_time']), reverse=True)
-
-    return jsonify({"success": True, "logs": final_logs[:100]})
-
+    # Ограничиваем до 300 последних событий, чтобы браузер не тормозил
+    return jsonify({"success": True, "logs": final_logs[:300]})
 # ========================================
 # МАРШРУТЫ (Сайт)
 # ========================================
