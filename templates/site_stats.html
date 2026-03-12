@@ -185,7 +185,8 @@
                 messagesHtml = `<div class="m-0">${log.messages[0]}</div>`;
             }
             
-            // Используем height: 26px для бейджиков и d-flex/align-items-center для жесткого выравнивания текста внутри них
+            // ИЗМЕНЕНО: align-items-start вместо align-items-center, чтобы серый значок 
+            // всегда оставался привязанным к верхнему краю (к первой строчке списка)
             tr.innerHTML = `
                 <td class="ps-4 text-muted small fw-bold align-middle" style="font-family: 'Roboto', sans-serif;">${log.time}</td>
                 <td class="fw-bold font-monospace text-dark align-middle">${log.ip}</td>
@@ -197,7 +198,7 @@
                 </td>
                 
                 <td class="pe-4 text-dark font-monospace small align-middle" style="white-space: normal; word-break: break-word;">
-                    <div class="d-flex align-items-center gap-2 m-0 p-0">
+                    <div class="d-flex align-items-start gap-2 m-0 p-0">
                         <span class="badge bg-secondary flex-shrink-0 d-inline-flex align-items-center justify-content-center m-0" style="width: 55px; height: 26px;">
                             ${log.source}
                         </span>
