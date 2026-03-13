@@ -167,44 +167,129 @@ function renderProcessTable() {
 document.getElementById('procSearch').addEventListener('input', renderProcessTable);
 
 // ==========================================
-// АНАЛИЗАТОР ДИСКА
+// АНАЛИЗАТОР ДИСКА (Кэширующий)
 // ==========================================
 let diskModal = null;
 let wasPausedBeforeDiskModal = false;
 
+// Объект для кэширования: { "/var": { data: [...], time: 12345678 } }
+let diskCache = {}; 
+let currentDiskPath = '/';
+
 document.addEventListener("DOMContentLoaded", () => {
-    // Инициализация модалки
     diskModal = new bootstrap.Modal(document.getElementById('diskUsageModal'));
 
-    // Событие открытия: ставим мониторинг на паузу
     document.getElementById('diskUsageModal').addEventListener('show.bs.modal', function () {
         wasPausedBeforeDiskModal = isPaused;
-        if (!isPaused) togglePause(); // Принудительно ставим на паузу
+        if (!isPaused) togglePause(); 
     });
 
-    // Событие закрытия: возвращаем мониторинг как было
     document.getElementById('diskUsageModal').addEventListener('hidden.bs.modal', function () {
-        if (!wasPausedBeforeDiskModal && isPaused) togglePause(); // Снимаем с паузы
+        if (!wasPausedBeforeDiskModal && isPaused) togglePause(); 
     });
-
-    // Запуск фонового обновления мониторинга
-    fetchStats();
-    setInterval(() => {
-        if (!isPaused) fetchStats();
-    }, 3000); 
 });
+
+function formatDiskBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
 
 function openDiskAnalyzer() {
     diskModal.show();
-    loadDiskPath('/'); // Начинаем сканирование с корневого каталога
+    loadDiskPath('/'); 
+}
+
+// Функция для копирования пути в буфер обмена
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        // Можно добавить всплывающее уведомление (Toast), но для скорости ограничимся консолью
+        console.log("Скопировано: " + text);
+    }).catch(err => {
+        console.error('Ошибка копирования: ', err);
+    });
+}
+
+// Вынесли рендер в отдельную функцию, чтобы использовать для кэша
+function renderDiskList(path, items) {
+    const list = document.getElementById('diskUsageList');
+    document.getElementById('currentDiskPath').innerText = path;
+    currentDiskPath = path;
+    list.innerHTML = '';
+
+    // 1. СНАЧАЛА ОТРИСОВЫВАЕМ КНОПКУ "НАЗАД" (если не в корне)
+    if (path !== '/') {
+        const parentPath = path.substring(0, path.lastIndexOf('/')) || '/';
+        const backBtn = document.createElement('button');
+        backBtn.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center bg-light';
+        backBtn.style.cursor = 'pointer';
+        backBtn.onclick = () => loadDiskPath(parentPath);
+        backBtn.innerHTML = `
+            <div class="d-flex align-items-center gap-3 text-primary">
+                <span class="material-symbols-outlined fs-4">turn_left</span>
+                <span class="fw-bold">.. (Назад)</span>
+            </div>
+        `;
+        list.appendChild(backBtn);
+    }
+
+    // 2. ОТРИСОВЫВАЕМ ПАПКИ И ФАЙЛЫ
+    items.forEach(item => {
+        if (item.type === 'up') return; // Игнорируем старую кнопку "назад", пришедшую с бэкенда
+
+        const btn = document.createElement('div'); // Теперь это div, так как внутри есть кнопка копирования
+        btn.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+        
+        let icon = 'draft';
+        let iconColor = 'text-secondary';
+        
+        if (item.type === 'dir') {
+            icon = 'folder';
+            iconColor = 'text-warning';
+            btn.onclick = (e) => {
+                // Если кликнули не по кнопке копирования - заходим в папку
+                if (!e.target.closest('.copy-btn')) {
+                    loadDiskPath(item.path);
+                }
+            };
+            btn.style.cursor = 'pointer';
+        }
+
+        let sizeBadgeClass = 'bg-light text-dark border';
+        if (item.size > 1024 ** 3) sizeBadgeClass = 'bg-danger text-white'; 
+        else if (item.size > 500 * 1024 ** 2) sizeBadgeClass = 'bg-warning text-dark'; 
+
+        btn.innerHTML = `
+            <div class="d-flex align-items-center gap-3 text-truncate pe-2" style="width: 70%;">
+                <span class="material-symbols-outlined ${iconColor} fs-4">${icon}</span>
+                <span class="text-truncate fw-bold" title="${item.name}">${item.name}</span>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge ${sizeBadgeClass} fs-6 px-3 py-2 rounded-pill shadow-sm">${formatDiskBytes(item.size)}</span>
+                <button class="btn btn-sm btn-outline-secondary border-0 p-1 copy-btn d-flex" onclick="copyToClipboard('${item.path}')" title="Скопировать путь">
+                    <span class="material-symbols-outlined fs-5">content_copy</span>
+                </button>
+            </div>
+        `;
+        list.appendChild(btn);
+    });
 }
 
 async function loadDiskPath(path) {
-    const list = document.getElementById('diskUsageList');
     const loader = document.getElementById('diskLoader');
-    const pathText = document.getElementById('currentDiskPath');
-    
-    pathText.innerText = path;
+    const list = document.getElementById('diskUsageList');
+
+    // Проверяем кэш. Если папку сканировали менее 60 секунд назад - берем из кэша
+    const now = Date.now();
+    if (diskCache[path] && (now - diskCache[path].time < 60000)) {
+        renderDiskList(path, diskCache[path].items);
+        return;
+    }
+
+    // Если в кэше нет - загружаем
+    document.getElementById('currentDiskPath').innerText = path;
     loader.style.display = 'block';
     list.innerHTML = '<div class="text-center py-5 text-muted">Идет анализ размера файлов. Это может занять несколько секунд...</div>';
 
@@ -219,47 +304,11 @@ async function loadDiskPath(path) {
         const data = await res.json();
         
         loader.style.display = 'none';
-        list.innerHTML = '';
 
         if (data.success) {
-            data.items.forEach(item => {
-                const btn = document.createElement('button');
-                btn.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
-                
-                let icon = 'description';
-                let iconColor = 'text-secondary';
-                
-                if (item.type === 'dir' || item.type === 'up') {
-                    icon = 'folder';
-                    iconColor = 'text-warning';
-                    btn.onclick = () => loadDiskPath(item.path);
-                    btn.style.cursor = 'pointer';
-                } else {
-                    btn.style.cursor = 'default';
-                }
-
-                if (item.type === 'up') {
-                    btn.innerHTML = `
-                        <div class="d-flex align-items-center gap-3">
-                            <span class="material-symbols-outlined text-primary fs-4">turn_left</span>
-                            <span class="fw-bold">.. (Назад)</span>
-                        </div>
-                    `;
-                } else {
-                    let sizeBadgeClass = 'bg-light text-dark border';
-                    if (item.size > 1024 ** 3) sizeBadgeClass = 'bg-danger text-white'; 
-                    else if (item.size > 500 * 1024 ** 2) sizeBadgeClass = 'bg-warning text-dark'; 
-
-                    btn.innerHTML = `
-                        <div class="d-flex align-items-center gap-3 text-truncate pe-2">
-                            <span class="material-symbols-outlined ${iconColor} fs-4">${icon}</span>
-                            <span class="text-truncate fw-bold" style="max-width: 350px;" title="${item.name}">${item.name}</span>
-                        </div>
-                        <span class="badge ${sizeBadgeClass} fs-6 px-3 py-2 rounded-pill shadow-sm">${formatDiskBytes(item.size)}</span>
-                    `;
-                }
-                list.appendChild(btn);
-            });
+            // Сохраняем в кэш
+            diskCache[path] = { items: data.items, time: now };
+            renderDiskList(path, data.items);
         } else {
             list.innerHTML = `<div class="text-center py-4 text-danger">Ошибка: ${data.error}</div>`;
         }
