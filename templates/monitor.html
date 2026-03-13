@@ -135,6 +135,33 @@
         </div>
     </div>
 </div>
+
+<!-- Модальное окно Анализатора диска -->
+<div class="modal fade" id="diskUsageModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content" style="border-radius: 12px; border: none;">
+            <div class="modal-header border-bottom-0 bg-dark text-white" style="border-radius: 12px 12px 0 0;">
+                <h5 class="modal-title fw-bold d-flex align-items-center gap-2">
+                    <span class="material-symbols-outlined">analytics</span> Анализатор диска
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="bg-light p-2 border-bottom d-flex align-items-center justify-content-between">
+                    <span class="font-monospace text-primary fw-bold" id="currentDiskPath" style="font-size: 0.9rem;">/</span>
+                    <div id="diskLoader" class="spinner-border spinner-border-sm text-primary" role="status" style="display: none;"></div>
+                </div>
+                <div class="list-group list-group-flush" id="diskUsageList">
+                    <!-- Сюда грузятся папки -->
+                </div>
+            </div>
+            <div class="modal-footer border-top-0 py-2 bg-light">
+                <small class="text-muted w-100 text-center">Сканирование больших папок (например, /) может занимать несколько секунд.</small>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
