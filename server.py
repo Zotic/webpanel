@@ -785,6 +785,61 @@ def api_site_analytics():
     return jsonify({"success": True, "logs": merged_logs[:150]})
 
 # ========================================
+# АНАЛИЗАТОР ДИСКА (WinDirStat)
+# ========================================
+def get_dir_size(path):
+    """Быстрый рекурсивный подсчет размера папки"""
+    total = 0
+    try:
+        for entry in os.scandir(path):
+            try:
+                if entry.is_symlink():
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    total += get_dir_size(entry.path)
+                else:
+                    total += entry.stat(follow_symlinks=False).st_size
+            except: pass
+    except: pass
+    return total
+
+@app.route('/api/disk_usage', methods=['POST'])
+@login_required
+def api_disk_usage():
+    current_path = request.json.get('path', '/')
+    if not os.path.isdir(current_path):
+        current_path = '/'
+        
+    items = []
+    
+    # Добавляем кнопку "Назад", если мы не в корне
+    if current_path != '/':
+        parent = os.path.dirname(current_path)
+        items.append({"name": "..", "path": parent, "type": "up", "size": -1})
+        
+    try:
+        for entry in os.scandir(current_path):
+            try:
+                if entry.is_symlink():
+                    continue
+                
+                if entry.is_dir(follow_symlinks=False):
+                    size = get_dir_size(entry.path)
+                    items.append({"name": entry.name, "path": entry.path, "type": "dir", "size": size})
+                else:
+                    size = entry.stat(follow_symlinks=False).st_size
+                    items.append({"name": entry.name, "path": entry.path, "type": "file", "size": size})
+            except: pass
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+    # Сортируем: сначала кнопка "Назад" (у нее size = -1), затем остальные по убыванию размера
+    items.sort(key=lambda x: (x['type'] != 'up', x['size']), reverse=True)
+    
+    return jsonify({"success": True, "path": current_path, "items": items})
+
+
+# ========================================
 # МАРШРУТЫ (Сайт)
 # ========================================
 @app.route('/login', methods=['GET', 'POST'])
