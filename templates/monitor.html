@@ -72,13 +72,15 @@
                     
                     <!-- Измененный блок иконок -->
                     <div class="d-flex align-items-center gap-2">
-                        <!-- Лупа без рамок, серого цвета, меняет цвет при наведении -->
-                        <span class="material-symbols-outlined text-secondary cursor-pointer" 
-                              style="font-size: 22px; transition: color 0.2s;" 
-                              onmouseover="this.classList.replace('text-secondary', 'text-primary')" 
-                              onmouseout="this.classList.replace('text-primary', 'text-secondary')" 
-                              onclick="openDiskAnalyzer()" 
-                              title="Анализ занятого места">search</span>
+                        <!-- Аккуратная кнопка-лупа без рамок и обводок -->
+                        <button class="btn btn-link text-secondary p-0 border-0 shadow-none text-decoration-none d-flex align-items-center" 
+                                style="outline: none;"
+                                onmouseover="this.classList.replace('text-secondary', 'text-primary')" 
+                                onmouseout="this.classList.replace('text-primary', 'text-secondary')" 
+                                onclick="openDiskAnalyzer()" 
+                                title="Анализ занятого места">
+                            <span class="material-symbols-outlined" style="font-size: 24px;">search</span>
+                        </button>
                               
                         <span class="material-symbols-outlined text-info fs-3">hard_drive</span>
                     </div>

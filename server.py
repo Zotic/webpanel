@@ -917,6 +917,36 @@ def vpn_users_page():
 # ========================================
 # МАРШРУТЫ (API)
 # ========================================
+
+@app.route('/api/get_service_file', methods=['POST'])
+@login_required
+def api_get_service_file():
+    bot_name = request.json.get('bot_name')
+    svc_name = f"{SERVICE_PREFIX}{bot_name}.service"
+    file_path = os.path.join(SYSTEMD_DIR, svc_name)
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return jsonify({"success": True, "content": content})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/save_service_file', methods=['POST'])
+@login_required
+def api_save_service_file():
+    bot_name = request.json.get('bot_name')
+    content = request.json.get('content')
+    svc_name = f"{SERVICE_PREFIX}{bot_name}.service"
+    file_path = os.path.join(SYSTEMD_DIR, svc_name)
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        # Применяем изменения, но не перезапускаем службу
+        run_command("systemctl daemon-reload")
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 @app.route('/api/files', methods=['POST'])
 @login_required
 def get_files():

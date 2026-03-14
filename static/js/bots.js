@@ -224,3 +224,68 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// ==========================================
+// Редактор Systemd файлов
+// ==========================================
+let currentEditBot = null;
+let editServiceModal = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    editServiceModal = new bootstrap.Modal(document.getElementById('editServiceModal'));
+});
+
+async function openEditService(botName) {
+    currentEditBot = botName;
+    document.getElementById('editServiceName').innerText = botName + '.service';
+    document.getElementById('serviceFileContent').value = "Загрузка файла...";
+    editServiceModal.show();
+
+    try {
+        const res = await fetch('/api/get_service_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bot_name: botName })
+        });
+        if (res.status === 401) { location.reload(); return; }
+        const data = await res.json();
+
+        if (data.success) {
+            document.getElementById('serviceFileContent').value = data.content;
+        } else {
+            document.getElementById('serviceFileContent').value = "Ошибка загрузки: " + data.error;
+        }
+    } catch (e) {
+        document.getElementById('serviceFileContent').value = "Ошибка сети при обращении к серверу.";
+    }
+}
+
+async function saveServiceFile() {
+    const content = document.getElementById('serviceFileContent').value;
+    const btn = document.querySelector('#editServiceModal .btn-primary');
+    btn.disabled = true;
+    btn.innerText = "Сохранение...";
+
+    try {
+        const res = await fetch('/api/save_service_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bot_name: currentEditBot, content: content })
+        });
+        if (res.status === 401) { location.reload(); return; }
+        const data = await res.json();
+
+        if (data.success) {
+            editServiceModal.hide();
+            // Небольшое уведомление
+            alert(`Файл ${currentEditBot}.service сохранен!\n\nDaemon-reload выполнен. Если нужно применить изменения к работающему боту, перезапустите его вручную.`);
+        } else {
+            alert('Ошибка сохранения: ' + data.error);
+        }
+    } catch (e) {
+        alert('Ошибка сети.');
+    } finally {
+        btn.disabled = false;
+        btn.innerText = "Сохранить изменения";
+    }
+}

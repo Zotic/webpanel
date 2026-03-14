@@ -46,6 +46,9 @@
                     </button>
                     <button class="action-btn btn-blue" onclick="botAction('{{ bot.name }}', 'logs')"><span class="material-symbols-outlined">description</span></button>
                     <button class="action-btn btn-orange" onclick="botAction('{{ bot.name }}', 'restart')"><span class="material-symbols-outlined">sync</span></button>
+                    <!-- НОВАЯ КНОПКА РЕДАКТИРОВАНИЯ -->
+                    <button class="action-btn bg-secondary" onclick="openEditService('{{ bot.name }}')" title="Редактировать systemd"><span class="material-symbols-outlined">edit</span></button>
+                    <!-- /НОВАЯ КНОПКА -->
                     <button class="action-btn btn-dark" onclick="botAction('{{ bot.name }}', 'delete')"><span class="material-symbols-outlined">delete</span></button>
                 </div>
             </div>
@@ -81,6 +84,28 @@
         </div>
     </div>
 </div>
+
+
+<!-- Модалка: Редактор systemd -->
+<div class="modal fade" id="editServiceModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" style="border-radius: 12px; border: none; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+            <div class="modal-header border-bottom-0">
+                <h5 class="modal-title fw-bold">Редактирование <span id="editServiceName" class="text-primary font-monospace"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-0">
+                <textarea id="serviceFileContent" class="form-control font-monospace bg-dark text-success" style="height: 400px; border-radius: 8px; font-size: 0.9rem;" spellcheck="false"></textarea>
+                <small class="text-muted mt-2 d-block">При сохранении будет выполнен <code>systemctl daemon-reload</code>. Бот <b>не будет</b> перезапущен автоматически.</small>
+            </div>
+            <div class="modal-footer border-top-0">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="saveServiceFile()">Сохранить изменения</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
