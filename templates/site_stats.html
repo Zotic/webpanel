@@ -175,18 +175,23 @@
             tr.className = rowClass;
             
             let messagesHtml = '';
-            if (log.messages.length > 1) {
+            let isList = log.messages.length > 1; // Проверяем, список ли это
+
+            if (isList) {
                 messagesHtml = '<ul class="mb-0 ps-3 m-0" style="list-style-type: disc;">';
                 log.messages.forEach(msg => {
-                    messagesHtml += `<li>${msg}</li>`;
+                    messagesHtml += `<li style="padding-bottom: 2px;">${msg}</li>`;
                 });
                 messagesHtml += '</ul>';
             } else {
                 messagesHtml = `<div class="m-0">${log.messages[0]}</div>`;
             }
             
-            // ИЗМЕНЕНО: align-items-start вместо align-items-center, чтобы серый значок 
-            // всегда оставался привязанным к верхнему краю (к первой строчке списка)
+            // Если это список - ровняем по верху, если одна строка - строго по центру
+            let alignClass = isList ? 'align-items-start' : 'align-items-center';
+            // Если это список, добавляем значку микро-отступ 2px сверху, чтобы сравнять его с маркером <li>
+            let badgeStyle = isList ? 'width: 55px; height: 26px; margin-top: 2px !important;' : 'width: 55px; height: 26px;';
+
             tr.innerHTML = `
                 <td class="ps-4 text-muted small fw-bold align-middle" style="font-family: 'Roboto', sans-serif;">${log.time}</td>
                 <td class="fw-bold font-monospace text-dark align-middle">${log.ip}</td>
@@ -198,8 +203,8 @@
                 </td>
                 
                 <td class="pe-4 text-dark font-monospace small align-middle" style="white-space: normal; word-break: break-word;">
-                    <div class="d-flex align-items-start gap-2 m-0 p-0">
-                        <span class="badge bg-secondary flex-shrink-0 d-inline-flex align-items-center justify-content-center m-0" style="width: 55px; height: 26px;">
+                    <div class="d-flex ${alignClass} gap-2 m-0 p-0">
+                        <span class="badge bg-secondary flex-shrink-0 d-inline-flex align-items-center justify-content-center m-0" style="${badgeStyle}">
                             ${log.source}
                         </span>
                         <div class="flex-grow-1 m-0 p-0" style="line-height: 1.4;">
@@ -211,6 +216,7 @@
             tbody.appendChild(tr);
         });
     }
+
 
     document.addEventListener("DOMContentLoaded", fetchAnalytics);
 </script>
