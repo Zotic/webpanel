@@ -6,13 +6,15 @@ import socket
 import time
 import psutil
 import urllib.request
+import shlex  # ДОБАВЛЕНО ДЛЯ БЕЗОПАСНОСТИ (защита от Command Injection)
 from datetime import datetime
 from functools import wraps, lru_cache
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 
 app = Flask(__name__)
 
-app.secret_key = os.getenv('PANEL_SECRET_KEY', 'fallback_secret_key_123') 
+# ДОБАВЛЕНО ДЛЯ БЕЗОПАСНОСТИ: Если ключ не задан, генерируем случайный (сессии не будут взломаны)
+app.secret_key = os.getenv('PANEL_SECRET_KEY', os.urandom(24)) 
 ADMIN_USERNAME = os.getenv('PANEL_ADMIN_USER', 'admin')
 ADMIN_PASSWORD = os.getenv('PANEL_ADMIN_PASS', 'password')
 
@@ -54,7 +56,7 @@ def get_limits():
     if os.path.exists(LIMITS_FILE):
         try:
             with open(LIMITS_FILE, 'r') as f: return json.load(f)
-        except: pass
+        except Exception as e: print(f"Error loading limits: {e}")
     return {}
 
 def save_limits(limits):
@@ -64,7 +66,7 @@ def get_custom_names():
     if os.path.exists(CUSTOM_NAMES_FILE):
         try:
             with open(CUSTOM_NAMES_FILE, 'r') as f: return json.load(f)
-        except: pass
+        except Exception as e: print(f"Error loading custom names: {e}")
     return {}
 
 def save_custom_names(names):
@@ -80,7 +82,8 @@ def get_main_interface():
 def sync_tc_rules():
     iface = get_main_interface()
     limits = get_limits()
-    run_command(f"tc qdisc del dev {iface} root")
+    # Удаляем старые правила аккуратно, подавляя вывод ошибки, если их не было
+    run_command(f"tc qdisc del dev {iface} root 2>/dev/null")
     if not limits: return
     run_command(f"tc qdisc add dev {iface} root handle 1: htb default 10")
     run_command(f"tc class add dev {iface} parent 1: classid 1:10 htb rate 1000mbit")
@@ -107,7 +110,8 @@ def save_bots_order(order_list):
 
 def get_exec_path(service_name, extract_python=False):
     try:
-        res = subprocess.run(['systemctl', 'show', '-p', 'ExecStart', service_name], capture_output=True, text=True)
+        svc_safe = shlex.quote(service_name)
+        res = subprocess.run(f'systemctl show -p ExecStart {svc_safe}', shell=True, capture_output=True, text=True)
         path = ""
         match = re.search(r'argv\[\]=(.*?)\s+;', res.stdout)
         if match: path = match.group(1).strip()
@@ -135,8 +139,10 @@ def get_bots():
         if file.startswith(SERVICE_PREFIX) and file.endswith(".service"):
             bot_name = file[len(SERVICE_PREFIX):-8]
             service_name = file
-            status = run_command(f"systemctl is-active {service_name}")
-            logs = run_command(f"journalctl -u {service_name} -n 15 --no-pager --output=cat")
+            svc_safe = shlex.quote(service_name) # Защита
+            
+            status = run_command(f"systemctl is-active {svc_safe}")
+            logs = run_command(f"journalctl -u {svc_safe} -n 15 --no-pager --output=cat")
             exec_path, is_python, python_path = get_exec_path(service_name, extract_python=True) 
             bots.append({
                 "name": bot_name, "service": service_name, "active": (status == "active"), 
@@ -213,7 +219,8 @@ def get_proxy_pids():
 
 def get_outline_connections():
     global _outline_cache, _outline_time
-    if time.time() - _outline_time < 3: return _outline_cache
+    # ОПТИМИЗАЦИЯ: Увеличиваем кэш с 3 до 10 секунд, чтобы не убить CPU Docker-ом
+    if time.time() - _outline_time < 10: return _outline_cache
 
     inbound, outbound = {}, {}
     container_name = "shadowbox"
@@ -576,8 +583,6 @@ def parse_syslog_date(date_str):
 @app.route('/api/site_analytics', methods=['GET'])
 @login_required
 def api_site_analytics():
-    """Сверх-умный анализатор: Собирает логи Xray, Nginx, SSH и UFW и склеивает похожие события."""
-    
     raw_logs = []
 
     def add_event(ip, time_str, source, severity, msg):
@@ -591,20 +596,14 @@ def api_site_analytics():
             color = "warning"
             verdict = "Подозрительная активность"
 
-        # Преобразуем строку времени обратно в объект datetime для удобной сортировки и сравнения
         try:
             dt_obj = datetime.strptime(time_str, "%d.%m.%Y %H:%M:%S")
         except:
-            dt_obj = datetime.now() # Фолбэк, если дата странная
+            dt_obj = datetime.now()
 
         raw_logs.append({
-            "dt_obj": dt_obj,
-            "time": time_str,
-            "ip": ip,
-            "source": source,
-            "verdict": verdict,
-            "color": color,
-            "msg": msg
+            "dt_obj": dt_obj, "time": time_str, "ip": ip,
+            "source": source, "verdict": verdict, "color": color, "msg": msg
         })
 
     # 1. NGINX
@@ -734,51 +733,32 @@ def api_site_analytics():
                     add_event(ip_m.group(1), time_str, "SSH", 2, f"Отклонен инвалидный пользователь: '{user_m.group(1)}'")
     except: pass
 
-    # ==========================================
-    # СЛИЯНИЕ ПОХОЖИХ СОБЫТИЙ (Окно 3 секунды)
-    # ==========================================
-    
-    # Сначала сортируем от старых к новым для правильного склеивания
+    # Слияние
     raw_logs.sort(key=lambda x: x['dt_obj'])
-    
     merged_logs = []
     
     for log in raw_logs:
-        # Проверяем, можно ли добавить этот лог к последнему элементу в merged_logs
         merged = False
         if merged_logs:
             last = merged_logs[-1]
-            
-            # Условия слияния: Тот же IP, тот же Источник, тот же Вердикт (Цвет)
             if last['ip'] == log['ip'] and last['source'] == log['source'] and last['verdict'] == log['verdict']:
-                # Разница во времени не более 3-х секунд
                 time_diff = (log['dt_obj'] - last['dt_obj']).total_seconds()
                 if 0 <= time_diff <= 3:
-                    # Избегаем дубликатов сообщений (если они абсолютно одинаковые)
                     if log['msg'] not in last['messages']:
                         last['messages'].append(log['msg'])
-                    
-                    # Обновляем время группы на время последнего события
                     last['dt_obj'] = log['dt_obj']
                     last['time'] = log['time']
                     merged = True
         
         if not merged:
-            # Создаем новую группу (строку)
             merged_logs.append({
-                "dt_obj": log['dt_obj'],
-                "time": log['time'],
-                "ip": log['ip'],
-                "source": log['source'],
-                "verdict": log['verdict'],
-                "color": log['color'],
-                "messages": [log['msg']] # Теперь сообщения хранятся списком
+                "dt_obj": log['dt_obj'], "time": log['time'], "ip": log['ip'],
+                "source": log['source'], "verdict": log['verdict'],
+                "color": log['color'], "messages": [log['msg']]
             })
 
-    # Сортируем итоговый список (сначала новые события)
     merged_logs.sort(key=lambda x: x['dt_obj'], reverse=True)
 
-    # Удаляем объект datetime, так как JSON его не переваривает
     for m in merged_logs:
         del m['dt_obj']
 
@@ -788,17 +768,13 @@ def api_site_analytics():
 # АНАЛИЗАТОР ДИСКА (WinDirStat)
 # ========================================
 def get_dir_size(path):
-    """Быстрый рекурсивный подсчет размера папки"""
     total = 0
     try:
         for entry in os.scandir(path):
             try:
-                if entry.is_symlink():
-                    continue
-                if entry.is_dir(follow_symlinks=False):
-                    total += get_dir_size(entry.path)
-                else:
-                    total += entry.stat(follow_symlinks=False).st_size
+                if entry.is_symlink(): continue
+                if entry.is_dir(follow_symlinks=False): total += get_dir_size(entry.path)
+                else: total += entry.stat(follow_symlinks=False).st_size
             except: pass
     except: pass
     return total
@@ -811,8 +787,6 @@ def api_disk_usage():
         current_path = '/'
         
     items = []
-    
-    # Добавляем кнопку "Назад", если мы не в корне
     if current_path != '/':
         parent = os.path.dirname(current_path)
         items.append({"name": "..", "path": parent, "type": "up", "size": -1})
@@ -820,9 +794,7 @@ def api_disk_usage():
     try:
         for entry in os.scandir(current_path):
             try:
-                if entry.is_symlink():
-                    continue
-                
+                if entry.is_symlink(): continue
                 if entry.is_dir(follow_symlinks=False):
                     size = get_dir_size(entry.path)
                     items.append({"name": entry.name, "path": entry.path, "type": "dir", "size": size})
@@ -833,11 +805,8 @@ def api_disk_usage():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
-    # Сортируем: сначала кнопка "Назад" (у нее size = -1), затем остальные по убыванию размера
     items.sort(key=lambda x: (x['type'] != 'up', x['size']), reverse=True)
-    
     return jsonify({"success": True, "path": current_path, "items": items})
-
 
 # ========================================
 # МАРШРУТЫ (Сайт)
@@ -918,10 +887,12 @@ def vpn_users_page():
 # МАРШРУТЫ (API)
 # ========================================
 
+# НОВОЕ: ЧТЕНИЕ ФАЙЛА SYSTEMD
 @app.route('/api/get_service_file', methods=['POST'])
 @login_required
 def api_get_service_file():
     bot_name = request.json.get('bot_name')
+    if not bot_name: return jsonify({"success": False, "error": "Имя бота не указано"})
     svc_name = f"{SERVICE_PREFIX}{bot_name}.service"
     file_path = os.path.join(SYSTEMD_DIR, svc_name)
     try:
@@ -931,21 +902,23 @@ def api_get_service_file():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
+# НОВОЕ: СОХРАНЕНИЕ ФАЙЛА SYSTEMD
 @app.route('/api/save_service_file', methods=['POST'])
 @login_required
 def api_save_service_file():
     bot_name = request.json.get('bot_name')
     content = request.json.get('content')
+    if not bot_name or content is None: return jsonify({"success": False, "error": "Нет данных"})
     svc_name = f"{SERVICE_PREFIX}{bot_name}.service"
     file_path = os.path.join(SYSTEMD_DIR, svc_name)
     try:
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        # Применяем изменения, но не перезапускаем службу
         run_command("systemctl daemon-reload")
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+
 
 @app.route('/api/files', methods=['POST'])
 @login_required
@@ -971,7 +944,10 @@ def add_bot():
     svc_name = f"{SERVICE_PREFIX}{bot_name}.service"
     with open(os.path.join(SYSTEMD_DIR, svc_name), 'w') as f:
         f.write(f"[Unit]\nDescription=Bot {bot_name}\nAfter=network.target\n[Service]\nExecStart=/usr/bin/python3 {file_path}\nWorkingDirectory={os.path.dirname(file_path)}\nRestart=always\nUser=root\nKillSignal=SIGINT\nTimeoutStopSec=5\n[Install]\nWantedBy=multi-user.target\n")
-    run_command(f"systemctl daemon-reload && systemctl enable {svc_name} && systemctl start {svc_name}")
+    
+    # БЕЗОПАСНОСТЬ: Экранирование
+    svc_name_safe = shlex.quote(svc_name)
+    run_command(f"systemctl daemon-reload && systemctl enable {svc_name_safe} && systemctl start {svc_name_safe}")
     return jsonify({"success": True})
 
 @app.route('/api/save_order', methods=['POST'])
@@ -983,26 +959,41 @@ def update_order():
 @app.route('/api/action', methods=['POST'])
 @login_required
 def bot_action():
-    bot_name, action = request.json.get('bot_name'), request.json.get('action')
+    bot_name = request.json.get('bot_name')
+    action = request.json.get('action')
     is_system = request.json.get('is_system', False)
-    svc = bot_name if is_system else f"{SERVICE_PREFIX}{bot_name}.service"
     
+    if not bot_name or not action:
+        return jsonify({"success": False, "error": "Неверные параметры"})
+
+    # БЕЗОПАСНОСТЬ: Экранируем переменные для защиты от Command Injection
+    bot_name_safe = shlex.quote(bot_name)
+    
+    if is_system:
+        svc_safe = bot_name_safe
+        svc_raw = bot_name 
+    else:
+        svc_safe = shlex.quote(f"{SERVICE_PREFIX}{bot_name}.service")
+        svc_raw = f"{SERVICE_PREFIX}{bot_name}.service"
+
     if action == "status_only":
-        return jsonify({"success": True, "active": (run_command(f"systemctl is-active {svc}") == "active")})
+        return jsonify({"success": True, "active": (run_command(f"systemctl is-active {svc_safe}") == "active")})
         
-    if action == "restart": run_command(f"systemctl restart {svc}")
-    elif action == "start": run_command(f"systemctl start {svc}")
-    elif action == "stop": run_command(f"systemctl stop {svc}")
+    if action == "restart": run_command(f"systemctl restart {svc_safe}")
+    elif action == "start": run_command(f"systemctl start {svc_safe}")
+    elif action == "stop": run_command(f"systemctl stop {svc_safe}")
     elif action == "delete":
         if is_system: return jsonify({"success": False, "error": "Удаление системных служб запрещено."})
-        run_command(f"systemctl stop {svc} && systemctl disable {svc}")
-        os.remove(os.path.join(SYSTEMD_DIR, svc))
+        run_command(f"systemctl stop {svc_safe} && systemctl disable {svc_safe}")
+        try:
+            os.remove(os.path.join(SYSTEMD_DIR, svc_raw))
+        except: pass
         run_command("systemctl daemon-reload")
         return jsonify({"success": True})
         
-    is_active = (run_command(f"systemctl is-active {svc}") == "active")
+    is_active = (run_command(f"systemctl is-active {svc_safe}") == "active")
     n = 100 if action == "full_logs" else 15
-    logs = run_command(f"journalctl -u {svc} -n {n} --no-pager --output=cat")
+    logs = run_command(f"journalctl -u {svc_safe} -n {n} --no-pager --output=cat")
     return jsonify({"success": True, "active": is_active, "logs": clean_logs(logs)})
 
 @app.route('/api/system_stats', methods=['GET'])
@@ -1047,7 +1038,10 @@ def api_system_logs():
     lines = filters.get('lines', 300) 
     priority = filters.get('priority', 'all')
     search = filters.get('search', '').lower()
-    cmd = f"journalctl -r -n {lines} -o json"
+    
+    # БЕЗОПАСНОСТЬ: Экранируем количество строк, хотя тут инъекция маловероятна, но для порядка
+    lines_safe = shlex.quote(str(int(lines)))
+    cmd = f"journalctl -r -n {lines_safe} -o json"
     if priority == 'error': cmd += " -p 0..3"
     elif priority == 'warning': cmd += " -p 4"
     elif priority == 'info': cmd += " -p 5..7"
@@ -1085,7 +1079,9 @@ def reset_outline_stats():
         if 'shadowbox' not in res.stdout:
             res2 = subprocess.run(['docker', 'ps', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
             if res2.stdout.strip(): container_name = res2.stdout.strip().split('\n')[0]
-        subprocess.run(['docker', 'restart', container_name])
+        
+        container_safe = shlex.quote(container_name)
+        subprocess.run(f"docker restart {container_safe}", shell=True)
         return jsonify({"success": True})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
 
@@ -1161,16 +1157,27 @@ def ip_info(ip):
 def api_vpn_action():
     service = request.json.get('service')
     action = request.json.get('action') 
+    
+    # БЕЗОПАСНОСТЬ: Жесткая проверка разрешенных сервисов и действий
+    if service not in ['xray', '3proxy', 'danted', 'outline', 'mtproto']:
+        return jsonify({"success": False, "error": "Неизвестный сервис"})
+    if action not in ['start', 'stop', 'restart']:
+        return jsonify({"success": False, "error": "Неизвестное действие"})
+
     try:
-        if service in ['xray', '3proxy', 'danted']: run_command(f"systemctl {action} {service}")
+        if service in ['xray', '3proxy', 'danted']: 
+            run_command(f"systemctl {action} {service}")
         elif service in ['outline', 'mtproto']:
             container = "shadowbox" if service == "outline" else "mtproto-proxy"
             if service == "outline":
                 res = subprocess.run(['docker', 'ps', '-a', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
                 if res.stdout.strip(): container = res.stdout.strip().split('\n')[0]
-            run_command(f"docker {action} {container}")
+            
+            container_safe = shlex.quote(container)
+            run_command(f"docker {action} {container_safe}")
         return jsonify({"success": True})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # БЕЗОПАСНОСТЬ: Выключаем режим Debug для продакшена!
+    app.run(host='0.0.0.0', port=5000, debug=False)
