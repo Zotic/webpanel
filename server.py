@@ -82,16 +82,36 @@ def get_main_interface():
 def sync_tc_rules():
     iface = get_main_interface()
     limits = get_limits()
-    # Удаляем старые правила аккуратно, подавляя вывод ошибки, если их не было
+    
+    # 1. Сносим старые правила (ошибки подавляются, если правил не было)
     run_command(f"tc qdisc del dev {iface} root 2>/dev/null")
+    
     if not limits: return
+    
+    # 2. Создаем корневой классификатор HTB
     run_command(f"tc qdisc add dev {iface} root handle 1: htb default 10")
-    run_command(f"tc class add dev {iface} parent 1: classid 1:10 htb rate 1000mbit")
+    
+    # 3. Дефолтный класс (для тех, у кого нет лимита - даем с запасом 10 Гбит/с, чтобы не резать скорость сервера)
+    run_command(f"tc class add dev {iface} parent 1: classid 1:10 htb rate 10000mbit ceil 10000mbit")
+    
     for ip, data in limits.items():
         cid = data['class_id']
-        speed = data['speed']
-        run_command(f"tc class add dev {iface} parent 1: classid 1:{cid} htb rate {speed}mbit")
-        run_command(f"tc filter add dev {iface} protocol ip parent 1:0 prio 1 u32 match ip dst {ip}/32 flowid 1:{cid}")
+        try: speed = int(data['speed'])
+        except: continue
+        
+        # 4. Класс для конкретного IP с жестким потолком (ceil) и буферами (burst)
+        run_command(f"tc class add dev {iface} parent 1: classid 1:{cid} htb rate {speed}mbit ceil {speed}mbit burst 32k cburst 32k")
+        
+        # 5. Дисциплина fq_codel (сглаживает трафик, убирает рывки и просадки пинга)
+        run_command(f"tc qdisc add dev {iface} parent 1:{cid} handle {cid}: fq_codel")
+        
+        # 6. Фильтры (раздельно для IPv4 и IPv6)
+        if ':' in ip:
+            # Для IPv6
+            run_command(f"tc filter add dev {iface} protocol ipv6 parent 1:0 prio 1 u32 match ip6 dst {ip}/128 flowid 1:{cid}")
+        else:
+            # Для IPv4
+            run_command(f"tc filter add dev {iface} protocol ip parent 1:0 prio 1 u32 match ip dst {ip}/32 flowid 1:{cid}")
 
 sync_tc_rules()
 
