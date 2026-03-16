@@ -907,6 +907,31 @@ def vpn_users_page():
 # МАРШРУТЫ (API)
 # ========================================
 
+@app.route('/api/read_file', methods=['POST'])
+@login_required
+def api_read_file():
+    file_path = request.json.get('path')
+    
+    if not file_path or not os.path.isfile(file_path):
+        return jsonify({"success": False, "error": "Файл не найден или это директория"})
+
+    try:
+        # Защита от зависания браузера: читаем максимум 2 Мегабайта
+        file_size = os.path.getsize(file_path)
+        if file_size > 2 * 1024 * 1024:
+            return jsonify({"success": False, "error": "Файл слишком большой (> 2 МБ). Предпросмотр недоступен."})
+
+        # Пытаемся прочитать как текст (UTF-8)
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            
+        return jsonify({"success": True, "content": content})
+    except UnicodeDecodeError:
+        # Если UTF-8 выдал ошибку, значит это бинарный файл (картинка, архив, исполняемый файл)
+        return jsonify({"success": False, "error": "Это бинарный файл. Его нельзя отобразить как текст."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 # НОВОЕ: ЧТЕНИЕ ФАЙЛА SYSTEMD
 @app.route('/api/get_service_file', methods=['POST'])
 @login_required
