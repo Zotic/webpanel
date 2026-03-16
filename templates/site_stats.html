@@ -69,6 +69,49 @@
     </div>
 </div>
 
+<!-- Улучшенный Стресс-тест (SNI / TLS Flood) -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white fw-bold py-3 border-bottom-0 d-flex justify-content-between align-items-center">
+        <span><span class="material-symbols-outlined text-danger align-middle me-1">network_ping</span> Тест защиты от блокировок (SNI / TLS Flood)</span>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            Генерирует шквал изолированных TLS-рукопожатий для проверки устойчивости сервера к DPI. 
+            Полезно для проверки маскировки Xray (Fallback).
+        </p>
+        
+        <div class="row g-3 align-items-end mb-3">
+            <div class="col-md-6">
+                <label class="form-label small text-muted fw-bold">Целевой URL (Endpoint)</label>
+                <input type="text" id="floodUrl" class="form-control font-monospace" value="/tls-test" placeholder="https://ваш-ip.nip.io/tls-test">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small text-muted fw-bold">Кол-во запросов</label>
+                <input type="number" id="floodCount" class="form-control font-monospace" value="100" min="10" max="1000">
+            </div>
+            <div class="col-md-3">
+                <button id="floodBtn" class="btn btn-danger w-100 fw-bold d-flex align-items-center justify-content-center gap-1" onclick="runFloodTest()">
+                    <span class="material-symbols-outlined fs-5">bolt</span> Запустить тест
+                </button>
+            </div>
+        </div>
+
+        <!-- Результаты теста (Скрыты по умолчанию) -->
+        <div id="floodResults" style="display: none;">
+            <div class="d-flex justify-content-between mb-1 small fw-bold">
+                <span id="floodProgressText" class="text-secondary">Прогресс: 0%</span>
+                <span>
+                    <span class="text-success me-2">Успешно: <span id="floodSuccess">0</span></span>
+                    <span class="text-danger">Ошибок: <span id="floodFail">0</span></span>
+                </span>
+            </div>
+            <div class="progress" style="height: 10px; border-radius: 8px;">
+                <div id="floodProgressBar" class="progress-bar bg-danger progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Умная таблица аналитики -->
 <div class="card border-0 shadow-sm">
     <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center">
@@ -219,5 +262,81 @@
 
 
     document.addEventListener("DOMContentLoaded", fetchAnalytics);
+
+
+// === Логика Стресс-теста (SNI/TLS Flood) ===
+    async function runFloodTest() {
+        const btn = document.getElementById('floodBtn');
+        const urlInput = document.getElementById('floodUrl').value.trim();
+        const count = parseInt(document.getElementById('floodCount').value);
+        
+        if (!urlInput) { alert("Укажите URL!"); return; }
+        if (count < 1 || count > 2000) { alert("Укажите адекватное число (1 - 2000)"); return; }
+
+        // Блокируем кнопку и показываем блок результатов
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span> Идет атака...';
+        document.getElementById('floodResults').style.display = 'block';
+        
+        let successes = 0;
+        let failures = 0;
+        let completed = 0;
+
+        const progressBar = document.getElementById('floodProgressBar');
+        const progressText = document.getElementById('floodProgressText');
+        const successEl = document.getElementById('floodSuccess');
+        const failEl = document.getElementById('floodFail');
+
+        // Сброс счетчиков
+        progressBar.style.width = '0%';
+        successEl.innerText = '0';
+        failEl.innerText = '0';
+
+        const updateUI = () => {
+            completed++;
+            let percent = Math.round((completed / count) * 100);
+            progressBar.style.width = percent + '%';
+            progressText.innerText = `Прогресс: ${percent}%`;
+            successEl.innerText = successes;
+            failEl.innerText = failures;
+        };
+
+        // Подготавливаем массив промисов (асинхронных запросов)
+        const promises = Array.from({ length: count }, (_, i) => {
+            // Добавляем случайный кэшбастер, чтобы браузер 100% не кэшировал запрос
+            const targetUrl = urlInput.includes('?') 
+                ? `${urlInput}&req=${i}&rnd=${Math.random()}` 
+                : `${urlInput}?req=${i}&rnd=${Math.random()}`;
+
+            return fetch(targetUrl, { 
+                cache: 'no-store',
+                mode: 'no-cors' // Позволяет бить даже по чужим доменам (nip.io), игнорируя CORS
+            })
+            .then(response => {
+                // Если режим no-cors, response.ok будет false (opaque response), 
+                // но сам факт ответа означает успешный коннект.
+                if (response.type === 'opaque' || response.ok) successes++;
+                else failures++;
+                updateUI();
+            })
+            .catch(() => {
+                failures++;
+                updateUI();
+            });
+        });
+
+        // Ждем завершения ВСЕХ запросов
+        await Promise.all(promises);
+
+        // Возвращаем кнопку в исходное состояние
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-outlined fs-5">bolt</span> Повторить тест';
+        progressBar.classList.remove('progress-bar-animated');
+        
+        // Автоматически обновляем таблицу аналитики, чтобы увидеть, задетектил ли нас логер
+        setTimeout(fetchAnalytics, 1000); 
+    }
+
+
 </script>
 {% endblock %}
