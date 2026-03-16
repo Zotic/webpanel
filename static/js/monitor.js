@@ -358,3 +358,40 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isPaused) fetchStats();
     }, 3000); 
 });
+
+let fileViewerModal = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Инициализируем модалку
+    let fvEl = document.getElementById('fileViewerModal');
+    if (fvEl) fileViewerModal = new bootstrap.Modal(fvEl);
+});
+
+async function viewFileContent(filePath) {
+    if (!fileViewerModal) return;
+    
+    document.getElementById('fileViewerTitle').innerText = filePath;
+    document.getElementById('fileViewerContent').value = "Чтение файла...";
+    
+    // Показываем окно
+    fileViewerModal.show();
+
+    try {
+        const res = await fetch('/api/read_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: filePath })
+        });
+        
+        if (res.status === 401) { location.reload(); return; }
+        const data = await res.json();
+
+        if (data.success) {
+            document.getElementById('fileViewerContent').value = data.content;
+        } else {
+            document.getElementById('fileViewerContent').value = "Ошибка: " + data.error;
+        }
+    } catch (e) {
+        document.getElementById('fileViewerContent').value = "Ошибка сети при обращении к серверу.";
+    }
+}
