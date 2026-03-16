@@ -171,6 +171,21 @@
     </div>
 </div>
 
+<!-- Модальное окно просмотра файла (открывается поверх анализатора) -->
+<div class="modal fade" id="fileViewerModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content bg-dark text-white" style="border-radius: 12px; border: none; box-shadow: 0 10px 40px rgba(0,0,0,0.5);">
+            <div class="modal-header border-bottom-0 p-3">
+                <h5 class="modal-title font-monospace" id="fileViewerTitle" style="font-size: 1rem; word-break: break-all;"></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <textarea id="fileViewerContent" class="form-control bg-dark text-success font-monospace" style="height: 65vh; border: none; border-radius: 0; font-size: 0.85rem; resize: none;" readonly></textarea>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
