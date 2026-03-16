@@ -277,7 +277,16 @@ function renderDiskList(path, items) {
             iconColor = 'text-warning';
             btn.onclick = (e) => {
                 if (!e.target.closest('.copy-btn')) {
-                    loadDiskPath(item.path);
+                    loadDiskPath(item.path); // Проваливаемся в папку
+                }
+            };
+            btn.style.cursor = 'pointer';
+        } else {
+            icon = 'draft';
+            iconColor = 'text-info';
+            btn.onclick = (e) => {
+                if (!e.target.closest('.copy-btn')) {
+                    viewFileContent(item.path); // Открываем файл
                 }
             };
             btn.style.cursor = 'pointer';
