@@ -84,57 +84,68 @@ def get_main_interface():
     return "enp3s0"
 
 def sync_tc_rules():
+    # 1. ЖЕСТКО прописываем ваш рабочий интерфейс
     iface = get_main_interface()
     limits = get_limits()
-
-    # БЕЗОПАСНОСТЬ: Экранируем имя интерфейса
     iface_safe = shlex.quote(iface)
 
-    # 1. Очищаем все старые правила
-    run_command(f"tc qdisc del dev {iface_safe} root 2>/dev/null")
-    run_command(f"tc qdisc del dev {iface_safe} ingress 2>/dev/null")
+    # Определяем путь к лог-файлу прямо рядом со скриптом server.py
+    log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tc_debug.log")
+    
+    # 2. Внутренняя функция, которая будет записывать КАЖДУЮ ошибку в tc_debug.log
+    def do_tc(cmd):
+        try:
+            # Убрали 2>/dev/null, чтобы видеть все системные ошибки
+            res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"CMD: {cmd}\n")
+                if res.stderr: 
+                    f.write(f"ERROR: {res.stderr.strip()}\n")
+        except Exception as e:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"CRITICAL EXCEPTION: {str(e)}\n")
 
-    if not limits: 
+    # 3. Начинаем новую запись в лог
+    with open(log_file, "w", encoding="utf-8") as f:
+        f.write(f"--- ЗАПУСК СИНХРОНИЗАЦИИ в {datetime.now()} ---\n")
+        f.write(f"Загружены лимиты: {limits}\n\n")
+
+    # 4. УДАЛЯЕМ старые правила (Используем абсолютный путь /sbin/tc)
+    do_tc(f"/sbin/tc qdisc del dev {iface_safe} root")
+    do_tc(f"/sbin/tc qdisc del dev {iface_safe} ingress")
+
+    if not limits:
         return
 
-    # === ИНИЦИАЛИЗАЦИЯ ===
-    # Корень для Download (исходящий от сервера)
-    run_command(f"tc qdisc add dev {iface_safe} root handle 1: htb default 10")
-    run_command(f"tc class add dev {iface_safe} parent 1: classid 1:1 htb rate 10000mbit")
-    run_command(f"tc class add dev {iface_safe} parent 1:1 classid 1:10 htb rate 10000mbit")
+    # 5. ИНИЦИАЛИЗАЦИЯ
+    do_tc(f"/sbin/tc qdisc add dev {iface_safe} root handle 1: htb default 10")
+    do_tc(f"/sbin/tc class add dev {iface_safe} parent 1: classid 1:1 htb rate 10000mbit")
+    do_tc(f"/sbin/tc class add dev {iface_safe} parent 1:1 classid 1:10 htb rate 10000mbit")
+    do_tc(f"/sbin/tc qdisc add dev {iface_safe} handle ffff: ingress")
 
-    # Корень для Upload (входящий на сервер)
-    run_command(f"tc qdisc add dev {iface_safe} handle ffff: ingress")
-
-    # === ПРИМЕНЕНИЕ ЛИМИТОВ ===
+    # 6. ПРИМЕНЕНИЕ ПРАВИЛ
     for ip, data in limits.items():
         cid = str(data['class_id'])
-        try: 
-            speed = str(int(data['speed']))
-        except: 
-            continue
+        try: speed = str(int(data['speed']))
+        except: continue
 
-        # БЕЗОПАСНОСТЬ: Экранируем IP, ID класса и скорость
+        # БЕЗОПАСНОСТЬ: Экранируем переменные (Защита от инъекций)
         ip_safe = shlex.quote(ip)
         cid_safe = shlex.quote(cid)
         speed_safe = shlex.quote(speed)
 
-        # --- 1. DOWNLOAD (Сервер -> Клиент) ---
-        run_command(f"tc class add dev {iface_safe} parent 1:1 classid 1:{cid_safe} htb rate {speed_safe}mbit ceil {speed_safe}mbit burst 15k")
-        
-        # Направляем пакеты по IP назначения (dst)
-        if ':' in ip: # IPv6
-            run_command(f"tc filter add dev {iface_safe} protocol ipv6 parent 1:0 prio 1 u32 match ip6 dst {ip_safe} flowid 1:{cid_safe}")
-        else: # IPv4
-            run_command(f"tc filter add dev {iface_safe} protocol ip parent 1:0 prio 1 u32 match ip dst {ip_safe}/32 flowid 1:{cid_safe}")
+        # Download (От сервера к клиенту)
+        do_tc(f"/sbin/tc class add dev {iface_safe} parent 1:1 classid 1:{cid_safe} htb rate {speed_safe}mbit ceil {speed_safe}mbit burst 15k")
+        if ':' in ip:
+            do_tc(f"/sbin/tc filter add dev {iface_safe} protocol ipv6 parent 1:0 prio 1 u32 match ip6 dst {ip_safe} flowid 1:{cid_safe}")
+        else:
+            do_tc(f"/sbin/tc filter add dev {iface_safe} protocol ip parent 1:0 prio 1 u32 match ip dst {ip_safe}/32 flowid 1:{cid_safe}")
 
-        # --- 2. UPLOAD (Клиент -> Сервер) ---
-        # Отбрасываем (police drop) пакеты от этого IP, превышающие скорость
-        if ':' in ip: # IPv6
-            run_command(f"tc filter add dev {iface_safe} parent ffff: protocol ipv6 prio 1 u32 match ip6 src {ip_safe} police rate {speed_safe}mbit burst 1m drop flowid :1")
-        else: # IPv4
-            run_command(f"tc filter add dev {iface_safe} parent ffff: protocol ip prio 1 u32 match ip src {ip_safe}/32 police rate {speed_safe}mbit burst 1m drop flowid :1")
-
+        # Upload (От клиента к серверу)
+        if ':' in ip:
+            do_tc(f"/sbin/tc filter add dev {iface_safe} parent ffff: protocol ipv6 prio 1 u32 match ip6 src {ip_safe} police rate {speed_safe}mbit burst 1m drop flowid :1")
+        else:
+            do_tc(f"/sbin/tc filter add dev {iface_safe} parent ffff: protocol ip prio 1 u32 match ip src {ip_safe}/32 police rate {speed_safe}mbit burst 1m drop flowid :1")
 # При запуске сервера сразу синхронизируем правила
 sync_tc_rules()
 
