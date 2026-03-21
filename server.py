@@ -73,15 +73,6 @@ def save_custom_names(names):
     with open(CUSTOM_NAMES_FILE, 'w') as f: json.dump(names, f)
 
 def get_main_interface():
-    # Способ 1: Ищем дефолтный маршрут напрямую
-    try:
-        out = run_command("ip route | grep default")
-        match = re.search(r'dev\s+([^\s]+)', out)
-        if match:
-            return match.group(1).strip()
-    except: pass
-
-    # Способ 2: Запасной вариант через ip route get
     try:
         out = run_command("ip route get 8.8.8.8")
         match = re.search(r'dev\s+([^\s]+)', out)
@@ -89,57 +80,61 @@ def get_main_interface():
             return match.group(1).strip()
     except: pass
     
-    # Способ 3: Ищем первый попавшийся физический интерфейс (не докер, не локалхост)
-    try:
-        for iface in psutil.net_if_stats().keys():
-            if iface != "lo" and not iface.startswith(("docker", "veth", "br-")):
-                return iface
-    except: pass
-
-    return "eth0" # Если всё сломалось
+    # Если команда выше не сработала, возвращаем ваш реальный интерфейс!
+    return "enp3s0"
 
 def sync_tc_rules():
-    # 1. Получаем интерфейс (например, enp3s0)
     iface = get_main_interface()
     limits = get_limits()
 
-    # 2. Очищаем все старые правила (Download и Upload)
-    run_command(f"tc qdisc del dev {iface} root 2>/dev/null")
-    run_command(f"tc qdisc del dev {iface} ingress 2>/dev/null")
+    # БЕЗОПАСНОСТЬ: Экранируем имя интерфейса
+    iface_safe = shlex.quote(iface)
+
+    # 1. Очищаем все старые правила
+    run_command(f"tc qdisc del dev {iface_safe} root 2>/dev/null")
+    run_command(f"tc qdisc del dev {iface_safe} ingress 2>/dev/null")
 
     if not limits: 
         return
 
     # === ИНИЦИАЛИЗАЦИЯ ===
     # Корень для Download (исходящий от сервера)
-    run_command(f"tc qdisc add dev {iface} root handle 1: htb default 10")
-    run_command(f"tc class add dev {iface} parent 1: classid 1:1 htb rate 10000mbit")
-    run_command(f"tc class add dev {iface} parent 1:1 classid 1:10 htb rate 10000mbit") # Безлимит
+    run_command(f"tc qdisc add dev {iface_safe} root handle 1: htb default 10")
+    run_command(f"tc class add dev {iface_safe} parent 1: classid 1:1 htb rate 10000mbit")
+    run_command(f"tc class add dev {iface_safe} parent 1:1 classid 1:10 htb rate 10000mbit")
 
     # Корень для Upload (входящий на сервер)
-    run_command(f"tc qdisc add dev {iface} handle ffff: ingress")
+    run_command(f"tc qdisc add dev {iface_safe} handle ffff: ingress")
 
-    # === ПРИМЕНЕНИЕ ЛИМИТОВ ДЛЯ КАЖДОГО IP ===
+    # === ПРИМЕНЕНИЕ ЛИМИТОВ ===
     for ip, data in limits.items():
-        cid = data['class_id']
-        try: speed = int(data['speed'])
-        except: continue
+        cid = str(data['class_id'])
+        try: 
+            speed = str(int(data['speed']))
+        except: 
+            continue
+
+        # БЕЗОПАСНОСТЬ: Экранируем IP, ID класса и скорость
+        ip_safe = shlex.quote(ip)
+        cid_safe = shlex.quote(cid)
+        speed_safe = shlex.quote(speed)
 
         # --- 1. DOWNLOAD (Сервер -> Клиент) ---
-        run_command(f"tc class add dev {iface} parent 1:1 classid 1:{cid} htb rate {speed}mbit ceil {speed}mbit")
+        run_command(f"tc class add dev {iface_safe} parent 1:1 classid 1:{cid_safe} htb rate {speed_safe}mbit ceil {speed_safe}mbit burst 15k")
         
         # Направляем пакеты по IP назначения (dst)
         if ':' in ip: # IPv6
-            run_command(f"tc filter add dev {iface} protocol ipv6 parent 1:0 prio 1 u32 match ip6 dst {ip} flowid 1:{cid}")
+            run_command(f"tc filter add dev {iface_safe} protocol ipv6 parent 1:0 prio 1 u32 match ip6 dst {ip_safe} flowid 1:{cid_safe}")
         else: # IPv4
-            run_command(f"tc filter add dev {iface} protocol ip parent 1:0 prio 1 u32 match ip dst {ip}/32 flowid 1:{cid}")
+            run_command(f"tc filter add dev {iface_safe} protocol ip parent 1:0 prio 1 u32 match ip dst {ip_safe}/32 flowid 1:{cid_safe}")
 
         # --- 2. UPLOAD (Клиент -> Сервер) ---
-        # Жестко отбрасываем (police drop) пакеты от этого IP, превышающие скорость
+        # Отбрасываем (police drop) пакеты от этого IP, превышающие скорость
         if ':' in ip: # IPv6
-            run_command(f"tc filter add dev {iface} parent ffff: protocol ipv6 prio 1 u32 match ip6 src {ip} police rate {speed}mbit burst 1m drop flowid :1")
+            run_command(f"tc filter add dev {iface_safe} parent ffff: protocol ipv6 prio 1 u32 match ip6 src {ip_safe} police rate {speed_safe}mbit burst 1m drop flowid :1")
         else: # IPv4
-            run_command(f"tc filter add dev {iface} parent ffff: protocol ip prio 1 u32 match ip src {ip}/32 police rate {speed}mbit burst 1m drop flowid :1")
+            run_command(f"tc filter add dev {iface_safe} parent ffff: protocol ip prio 1 u32 match ip src {ip_safe}/32 police rate {speed_safe}mbit burst 1m drop flowid :1")
+
 # При запуске сервера сразу синхронизируем правила
 sync_tc_rules()
 
