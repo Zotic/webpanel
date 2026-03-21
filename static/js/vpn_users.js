@@ -177,7 +177,17 @@ async function applyCustomName() {
     } catch (e) {}
 }
 
-// === ФУНКЦИЯ ИНФО ОБ IP (Обновлено для ipinfo.io) ===
+// Вспомогательная функция: превращает код "RU" в эмодзи "🇷🇺"
+function getFlagEmoji(countryCode) {
+    if (!countryCode || countryCode.length !== 2) return '';
+    const codePoints = countryCode
+        .toUpperCase()
+        .split('')
+        .map(char => 127397 + char.charCodeAt(0));
+    return String.fromCodePoint(...codePoints);
+}
+
+// === ФУНКЦИЯ ИНФО ОБ IP (Обновлено для ipinfo.io + Эмодзи флаги) ===
 async function showIpInfo(ip) {
     document.getElementById('infoIpText').innerText = ip;
     document.getElementById('ipInfoLoader').style.display = 'inline-block';
@@ -192,13 +202,18 @@ async function showIpInfo(ip) {
         document.getElementById('ipInfoLoader').style.display = 'none';
         
         if (result.success && result.data) {
-            // ipinfo.io возвращает данные в другом формате
             const d = result.data;
             document.getElementById('ipInfoContent').style.display = 'block';
             
-            // Если есть и регион, и страна, склеиваем их (например: "Россия, Московская область")
-            let location = d.country || 'Неизвестно';
-            if (d.region) location = `${d.country}, ${d.region}`;
+            // Получаем код страны (например "DE" или "RU")
+            const countryCode = d.country || '';
+            
+            // Превращаем код в Эмодзи
+            const flagEmoji = getFlagEmoji(countryCode);
+            
+            // Формируем красивую строку: "🇩🇪 DE, Hesse" или "🇷🇺 RU, Moscow"
+            let location = countryCode ? `${flagEmoji} ${countryCode}` : 'Неизвестно';
+            if (d.region) location += `, ${d.region}`;
             
             document.getElementById('infoCountry').innerText = location;
             document.getElementById('infoCity').innerText = d.city || 'Неизвестно';
@@ -209,7 +224,7 @@ async function showIpInfo(ip) {
             isp = isp.replace(/^AS\d+\s/, ''); 
             
             document.getElementById('infoIsp').innerText = isp;
-            document.getElementById('infoOrg').innerText = isp; // Оставляем дубль для совместимости шаблона
+            document.getElementById('infoOrg').innerText = isp; // Оставляем дубль
         } else {
             alert('Не удалось получить информацию об IP');
             ipInfoModal.hide();

@@ -543,33 +543,41 @@ def get_outline_metrics():
 
 def get_mtproto_status():
     try:
-        res = subprocess.run(['docker', 'ps', '--filter', 'name=mtproto-proxy', '--format', '{{.Status}}'], capture_output=True, text=True)
-        return "active" if "Up" in res.stdout else "inactive"
+        # Проверяем статус службы systemd, а не docker контейнера
+        status = run_command("systemctl is-active mtproxy.service")
+        return "active" if status == "active" else "inactive"
     except: return "unknown"
 
 def get_mtproto_stats():
-    stats = {"uptime": "0", "active_connections": "0", "total_connections": "0", "version": "Неизвестно"}
+    stats = {"uptime": "0", "active_connections": "-", "total_connections": "-", "version": "Systemd Service"}
     try:
-        res = subprocess.run(['docker', 'exec', 'mtproto-proxy', 'curl', '-s', 'http://localhost:2398/stats'], capture_output=True, text=True)
-        for line in res.stdout.split('\n'):
-            parts = line.split('\t')
-            if len(parts) >= 2:
-                if parts[0] == 'uptime': stats['uptime'] = parts[1]
-                elif parts[0] == 'active_connections': stats['active_connections'] = parts[1]
-                elif parts[0] == 'total_connections': stats['total_connections'] = parts[1]
-                elif parts[0] == 'version': stats['version'] = parts[1]
+        # Получаем время запуска службы (ActiveEnterTimestamp)
+        res = run_command("systemctl show -p ActiveEnterTimestamp mtproxy.service")
+        match = re.search(r'ActiveEnterTimestamp=(.*)', res)
+        if match and match.group(1):
+            time_str = match.group(1).strip()
+            # Формат: "Wed 2023-10-25 15:30:00 UTC" или "2023-10-25 15:30:00"
+            if time_str != 'n/a':
+                try:
+                    # Пытаемся распарсить дату (зависит от локали, поэтому берем простой способ)
+                    cmd = f"date -d '{time_str}' +%s"
+                    start_time = int(run_command(cmd))
+                    stats['uptime'] = str(int(time.time() - start_time))
+                except: pass
     except: pass
     
     try:
         secs = int(stats['uptime'])
-        m, s = divmod(secs, 60)
-        h, m = divmod(m, 60)
-        d, h = divmod(h, 24)
-        stats['uptime_formatted'] = f"{d}д {h}ч {m}м"
+        if secs > 0:
+            m, s = divmod(secs, 60)
+            h, m = divmod(m, 60)
+            d, h = divmod(h, 24)
+            stats['uptime_formatted'] = f"{d}д {h}ч {m}м"
+        else:
+            stats['uptime_formatted'] = "0д 0ч 0м"
     except:
         stats['uptime_formatted'] = "0д 0ч 0м"
     return stats
-
 
 # ========================================
 # АНАЛИТИКА САЙТА И БЕЗОПАСНОСТИ (ГЛАВНАЯ СТРАНИЦА)
@@ -1244,16 +1252,22 @@ def api_vpn_action():
         return jsonify({"success": False, "error": "Неизвестное действие"})
 
     try:
-        if service in ['xray', '3proxy', 'danted']: 
-            run_command(f"systemctl {action} {service}")
-        elif service in ['outline', 'mtproto']:
-            container = "shadowbox" if service == "outline" else "mtproto-proxy"
-            if service == "outline":
-                res = subprocess.run(['docker', 'ps', '-a', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
-                if res.stdout.strip(): container = res.stdout.strip().split('\n')[0]
+        # ДОБАВИЛИ mtproxy сюда
+        if service in ['xray', '3proxy', 'danted', 'mtproto']: 
+            # Маппинг имен сервисов: если пришло mtproto, дергаем mtproxy.service
+            svc_name = "mtproxy.service" if service == "mtproto" else service
+            svc_safe = shlex.quote(svc_name)
+            action_safe = shlex.quote(action)
+            run_command(f"systemctl {action_safe} {svc_safe}")
+            
+        elif service in ['outline']:
+            container = "shadowbox"
+            res = subprocess.run(['docker', 'ps', '-a', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
+            if res.stdout.strip(): container = res.stdout.strip().split('\n')[0]
             
             container_safe = shlex.quote(container)
-            run_command(f"docker {action} {container_safe}")
+            action_safe = shlex.quote(action)
+            run_command(f"docker {action_safe} {container_safe}")
         return jsonify({"success": True})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
 
