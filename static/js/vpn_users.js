@@ -177,17 +177,18 @@ async function applyCustomName() {
     } catch (e) {}
 }
 
-// Вспомогательная функция: превращает код "RU" в эмодзи "🇷🇺"
-function getFlagEmoji(countryCode) {
+// Вспомогательная функция: загружает красивую картинку флага вместо эмодзи ОС
+function getFlagHtml(countryCode) {
     if (!countryCode || countryCode.length !== 2) return '';
-    const codePoints = countryCode
-        .toUpperCase()
-        .split('')
-        .map(char => 127397 + char.charCodeAt(0));
-    return String.fromCodePoint(...codePoints);
+    const code = countryCode.toLowerCase();
+    // Используем бесплатный CDN (картинка весит меньше 1 КБ)
+    return `<img src="https://flagcdn.com/24x18/${code}.png" 
+                 srcset="https://flagcdn.com/48x36/${code}.png 2x" 
+                 alt="${countryCode}" 
+                 style="vertical-align: middle; margin-top: -4px; margin-right: 5px; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">`;
 }
 
-// === ФУНКЦИЯ ИНФО ОБ IP (Обновлено для ipinfo.io + Эмодзи флаги) ===
+// === ФУНКЦИЯ ИНФО ОБ IP (Обновлено: Картинки-флаги вместо эмодзи) ===
 async function showIpInfo(ip) {
     document.getElementById('infoIpText').innerText = ip;
     document.getElementById('ipInfoLoader').style.display = 'inline-block';
@@ -205,26 +206,26 @@ async function showIpInfo(ip) {
             const d = result.data;
             document.getElementById('ipInfoContent').style.display = 'block';
             
-            // Получаем код страны (например "DE" или "RU")
+            // Получаем код страны (например "NG" или "DE")
             const countryCode = d.country || '';
             
-            // Превращаем код в Эмодзи
-            const flagEmoji = getFlagEmoji(countryCode);
+            // Получаем HTML-код картинки флага
+            const flagHtml = getFlagHtml(countryCode);
             
-            // Формируем красивую строку: "🇩🇪 DE, Hesse" или "🇷🇺 RU, Moscow"
-            let location = countryCode ? `${flagEmoji} ${countryCode}` : 'Неизвестно';
+            // Формируем красивую строку с картинкой
+            let location = countryCode ? `${flagHtml} <strong>${countryCode}</strong>` : 'Неизвестно';
             if (d.region) location += `, ${d.region}`;
             
-            document.getElementById('infoCountry').innerText = location;
+            // Вставляем как HTML, чтобы картинка отрендерилась
+            document.getElementById('infoCountry').innerHTML = location;
             document.getElementById('infoCity').innerText = d.city || 'Неизвестно';
             
-            // Провайдер и организация в ipinfo обычно лежат в поле "org"
+            // Провайдер
             let isp = d.org || 'Неизвестно';
-            // Убираем номер автономной системы (AS12345), если он есть в начале
             isp = isp.replace(/^AS\d+\s/, ''); 
             
             document.getElementById('infoIsp').innerText = isp;
-            document.getElementById('infoOrg').innerText = isp; // Оставляем дубль
+            document.getElementById('infoOrg').innerText = isp;
         } else {
             alert('Не удалось получить информацию об IP');
             ipInfoModal.hide();
