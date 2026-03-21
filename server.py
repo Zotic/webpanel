@@ -82,36 +82,60 @@ def get_main_interface():
 def sync_tc_rules():
     iface = get_main_interface()
     limits = get_limits()
-    
-    # 1. Сносим старые правила (ошибки подавляются, если правил не было)
+
+    # 1. ПОЛНАЯ ОЧИСТКА (удаляем старые классы и цепочки iptables)
     run_command(f"tc qdisc del dev {iface} root 2>/dev/null")
+    run_command(f"tc qdisc del dev {iface} ingress 2>/dev/null")
     
+    for ipt in ["iptables", "ip6tables"]:
+        run_command(f"{ipt} -t mangle -D POSTROUTING -j ZX_SHAPE 2>/dev/null")
+        run_command(f"{ipt} -t mangle -F ZX_SHAPE 2>/dev/null")
+        run_command(f"{ipt} -t mangle -X ZX_SHAPE 2>/dev/null")
+
     if not limits: return
-    
-    # 2. Создаем корневой классификатор HTB
+
+    # 2. ИНИЦИАЛИЗАЦИЯ
+    # Создаем свою цепочку в iptables, чтобы не сломать чужие правила
+    for ipt in ["iptables", "ip6tables"]:
+        run_command(f"{ipt} -t mangle -N ZX_SHAPE")
+        run_command(f"{ipt} -t mangle -A POSTROUTING -j ZX_SHAPE")
+
+    # Корневой шейпер для СКАЧИВАНИЯ (Трафик от сервера к клиенту - Egress)
     run_command(f"tc qdisc add dev {iface} root handle 1: htb default 10")
-    
-    # 3. Дефолтный класс (для тех, у кого нет лимита - даем с запасом 10 Гбит/с, чтобы не резать скорость сервера)
-    run_command(f"tc class add dev {iface} parent 1: classid 1:10 htb rate 10000mbit ceil 10000mbit")
-    
+    run_command(f"tc class add dev {iface} parent 1: classid 1:1 htb rate 10000mbit")
+    run_command(f"tc class add dev {iface} parent 1:1 classid 1:10 htb rate 10000mbit") # Безлимит для остальных
+
+    # Корневой фильтр для ЗАГРУЗКИ (Трафик от клиента на сервер - Ingress)
+    run_command(f"tc qdisc add dev {iface} handle ffff: ingress")
+
+    # 3. ПРИМЕНЕНИЕ ЛИМИТОВ
     for ip, data in limits.items():
         cid = data['class_id']
         try: speed = int(data['speed'])
         except: continue
-        
-        # 4. Класс для конкретного IP с жестким потолком (ceil) и буферами (burst)
-        run_command(f"tc class add dev {iface} parent 1: classid 1:{cid} htb rate {speed}mbit ceil {speed}mbit burst 32k cburst 32k")
-        
-        # 5. Дисциплина fq_codel (сглаживает трафик, убирает рывки и просадки пинга)
+
+        # Проверка на IPv6
+        is_ipv6 = ':' in ip
+        ipt = "ip6tables" if is_ipv6 else "iptables"
+        proto = "ipv6" if is_ipv6 else "ip"
+        u32_match = "ip6 src" if is_ipv6 else "ip src"
+
+        # === ОГРАНИЧЕНИЕ СКАЧИВАНИЯ (Download) ===
+        # Создаем класс (трубу) с жестким лимитом
+        run_command(f"tc class add dev {iface} parent 1:1 classid 1:{cid} htb rate {speed}mbit ceil {speed}mbit burst 32k")
+        # Добавляем умную очередь fq_codel, чтобы не прыгал пинг при загрузке
         run_command(f"tc qdisc add dev {iface} parent 1:{cid} handle {cid}: fq_codel")
         
-        # 6. Фильтры (раздельно для IPv4 и IPv6)
-        if ':' in ip:
-            # Для IPv6
-            run_command(f"tc filter add dev {iface} protocol ipv6 parent 1:0 prio 1 u32 match ip6 dst {ip}/128 flowid 1:{cid}")
-        else:
-            # Для IPv4
-            run_command(f"tc filter add dev {iface} protocol ip parent 1:0 prio 1 u32 match ip dst {ip}/32 flowid 1:{cid}")
+        # Правило: "Эй, tc, если у пакета стоит метка (fwmark) равная {cid}, отправляй его в урезанную трубу"
+        run_command(f"tc filter add dev {iface} protocol {proto} parent 1:0 prio 1 handle {cid} fw classid 1:{cid}")
+        
+        # iptables: ставим эту самую метку на пакеты, летящие к IP-адресу юзера
+        run_command(f"{ipt} -t mangle -A ZX_SHAPE -d {ip} -j MARK --set-mark {cid}")
+        run_command(f"{ipt} -t mangle -A ZX_SHAPE -d {ip} -j RETURN")
+
+        # === ОГРАНИЧЕНИЕ ОТДАЧИ (Upload) ===
+        # Для входящего трафика используем policing (жесткий сброс лишних пакетов), так как мы не можем управлять тем, с какой скоростью клиент нам шлет данные
+        run_command(f"tc filter add dev {iface} parent ffff: protocol {proto} prio 1 u32 match {u32_match} {ip}/128 police rate {speed}mbit burst 1m drop flowid :1")
 
 sync_tc_rules()
 
