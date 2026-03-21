@@ -99,27 +99,47 @@ def get_main_interface():
     return "eth0" # Если всё сломалось
 
 def sync_tc_rules():
-    """Синхронизирует правила Linux TC с нашим файлом"""
+    # 1. Получаем интерфейс (например, enp3s0)
     iface = get_main_interface()
     limits = get_limits()
 
-    # Сбрасываем все текущие ограничения
-    run_command(f"tc qdisc del dev {iface} root")
+    # 2. Очищаем все старые правила (Download и Upload)
+    run_command(f"tc qdisc del dev {iface} root 2>/dev/null")
+    run_command(f"tc qdisc del dev {iface} ingress 2>/dev/null")
 
-    if not limits:
-        return # Если файла нет или он пуст - оставляем интернет свободным
+    if not limits: 
+        return
 
-    # Создаем базовое дерево классов
+    # === ИНИЦИАЛИЗАЦИЯ ===
+    # Корень для Download (исходящий от сервера)
     run_command(f"tc qdisc add dev {iface} root handle 1: htb default 10")
-    run_command(f"tc class add dev {iface} parent 1: classid 1:10 htb rate 1000mbit")
+    run_command(f"tc class add dev {iface} parent 1: classid 1:1 htb rate 10000mbit")
+    run_command(f"tc class add dev {iface} parent 1:1 classid 1:10 htb rate 10000mbit") # Безлимит
 
-    # Применяем лимиты по IP адресам
+    # Корень для Upload (входящий на сервер)
+    run_command(f"tc qdisc add dev {iface} handle ffff: ingress")
+
+    # === ПРИМЕНЕНИЕ ЛИМИТОВ ДЛЯ КАЖДОГО IP ===
     for ip, data in limits.items():
         cid = data['class_id']
-        speed = data['speed']
-        run_command(f"tc class add dev {iface} parent 1: classid 1:{cid} htb rate {speed}mbit")
-        run_command(f"tc filter add dev {iface} protocol ip parent 1:0 prio 1 u32 match ip dst {ip}/32 flowid 1:{cid}")
+        try: speed = int(data['speed'])
+        except: continue
 
+        # --- 1. DOWNLOAD (Сервер -> Клиент) ---
+        run_command(f"tc class add dev {iface} parent 1:1 classid 1:{cid} htb rate {speed}mbit ceil {speed}mbit")
+        
+        # Направляем пакеты по IP назначения (dst)
+        if ':' in ip: # IPv6
+            run_command(f"tc filter add dev {iface} protocol ipv6 parent 1:0 prio 1 u32 match ip6 dst {ip} flowid 1:{cid}")
+        else: # IPv4
+            run_command(f"tc filter add dev {iface} protocol ip parent 1:0 prio 1 u32 match ip dst {ip}/32 flowid 1:{cid}")
+
+        # --- 2. UPLOAD (Клиент -> Сервер) ---
+        # Жестко отбрасываем (police drop) пакеты от этого IP, превышающие скорость
+        if ':' in ip: # IPv6
+            run_command(f"tc filter add dev {iface} parent ffff: protocol ipv6 prio 1 u32 match ip6 src {ip} police rate {speed}mbit burst 1m drop flowid :1")
+        else: # IPv4
+            run_command(f"tc filter add dev {iface} parent ffff: protocol ip prio 1 u32 match ip src {ip}/32 police rate {speed}mbit burst 1m drop flowid :1")
 # При запуске сервера сразу синхронизируем правила
 sync_tc_rules()
 
