@@ -99,48 +99,28 @@ def get_main_interface():
     return "eth0" # Если всё сломалось
 
 def sync_tc_rules():
-    # 1. Получаем точное имя интерфейса
+    """Синхронизирует правила Linux TC с нашим файлом"""
     iface = get_main_interface()
     limits = get_limits()
 
-    # 2. Полностью сносим старые правила шейпинга
-    run_command(f"tc qdisc del dev {iface} root 2>/dev/null")
+    # Сбрасываем все текущие ограничения
+    run_command(f"tc qdisc del dev {iface} root")
 
-    if not limits: 
-        return
+    if not limits:
+        return # Если файла нет или он пуст - оставляем интернет свободным
 
-    # 3. Инициализация (создаем корень)
-    # default 10 означает, что любой IP без лимита попадет в безлимитный класс
-    out1 = run_command(f"tc qdisc add dev {iface} root handle 1: htb default 10")
-    
-    # Если ядро не поддерживает шейпинг (например, OpenVZ), выведем ошибку в консоль
-    if "RTNETLINK" in out1 or "Operation not permitted" in out1:
-        print(f"КРИТИЧЕСКАЯ ОШИБКА: Ядро сервера не поддерживает Traffic Control на {iface}!")
+    # Создаем базовое дерево классов
+    run_command(f"tc qdisc add dev {iface} root handle 1: htb default 10")
+    run_command(f"tc class add dev {iface} parent 1: classid 1:10 htb rate 1000mbit")
 
-    # 4. Создаем общую трубу для сервера (задаем с запасом 10 Гбит/с)
-    run_command(f"tc class add dev {iface} parent 1: classid 1:1 htb rate 10000mbit")
-    
-    # 5. Создаем "Безлимитный" класс для тех, кого нет в ip_limits.json
-    run_command(f"tc class add dev {iface} parent 1:1 classid 1:10 htb rate 10000mbit")
-
-    # 6. Применяем лимиты для каждого IP
+    # Применяем лимиты по IP адресам
     for ip, data in limits.items():
         cid = data['class_id']
-        try: speed = int(data['speed'])
-        except: continue
+        speed = data['speed']
+        run_command(f"tc class add dev {iface} parent 1: classid 1:{cid} htb rate {speed}mbit")
+        run_command(f"tc filter add dev {iface} protocol ip parent 1:0 prio 1 u32 match ip dst {ip}/32 flowid 1:{cid}")
 
-        # Создаем класс (трубу) для конкретного юзера с жестким лимитом
-        run_command(f"tc class add dev {iface} parent 1:1 classid 1:{cid} htb rate {speed}mbit ceil {speed}mbit")
-        
-        # Справедливое распределение пакетов (sfq - работает даже на старых ядрах)
-        run_command(f"tc qdisc add dev {iface} parent 1:{cid} handle {cid}: sfq perturb 10")
-        
-        # Самое главное: Фильтр U32. Он ловит пакет по IP назначения (dst) и направляет в трубу
-        if ':' in ip:
-            run_command(f"tc filter add dev {iface} protocol ipv6 parent 1:0 prio 1 u32 match ip6 dst {ip}/128 flowid 1:{cid}")
-        else:
-            run_command(f"tc filter add dev {iface} protocol ip parent 1:0 prio 1 u32 match ip dst {ip}/32 flowid 1:{cid}")
-
+# При запуске сервера сразу синхронизируем правила
 sync_tc_rules()
 
 # ========================================
