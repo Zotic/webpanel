@@ -177,18 +177,29 @@ async function applyCustomName() {
     } catch (e) {}
 }
 
-// Вспомогательная функция: загружает красивую картинку флага вместо эмодзи ОС
-function getFlagHtml(countryCode) {
-    if (!countryCode || countryCode.length !== 2) return '';
-    const code = countryCode.toLowerCase();
-    // Используем бесплатный CDN (картинка весит меньше 1 КБ)
-    return `<img src="https://flagcdn.com/24x18/${code}.png" 
-                 srcset="https://flagcdn.com/48x36/${code}.png 2x" 
-                 alt="${countryCode}" 
-                 style="vertical-align: middle; margin-top: -4px; margin-right: 5px; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">`;
+// Встроенный переводчик браузера (NL -> Нидерланды, DE -> Германия)
+function getCountryNameRu(countryCode) {
+    try {
+        const displayNames = new Intl.DisplayNames(['ru'], { type: 'region' });
+        return displayNames.of(countryCode);
+    } catch (e) {
+        return countryCode; // Если браузер старый, вернет буквы
+    }
 }
 
-// === ФУНКЦИЯ ИНФО ОБ IP (Обновлено: Картинки-флаги вместо эмодзи) ===
+// Формируем строгий прямоугольный флаг (SVG) без лишних фонов
+function getFlagHtml(countryCode, countryNameRu) {
+    if (!countryCode || countryCode.length !== 2) return '';
+    const code = countryCode.toLowerCase();
+    // Используем векторный SVG (он идеально четкий и плоский)
+    // Добавлена легкая тень, чтобы флаги с белыми полосами (как у РФ или Нидерландов) не сливались с фоном
+    return `<img src="https://flagcdn.com/${code}.svg" 
+                 alt="${countryNameRu}" 
+                 title="${countryNameRu}" 
+                 style="width: 22px; height: auto; vertical-align: middle; margin-top: -3px; margin-right: 6px; border-radius: 2px; box-shadow: 0 0 3px rgba(0,0,0,0.3); cursor: help;">`;
+}
+
+// === ФУНКЦИЯ ИНФО ОБ IP ===
 async function showIpInfo(ip) {
     document.getElementById('infoIpText').innerText = ip;
     document.getElementById('ipInfoLoader').style.display = 'inline-block';
@@ -206,21 +217,22 @@ async function showIpInfo(ip) {
             const d = result.data;
             document.getElementById('ipInfoContent').style.display = 'block';
             
-            // Получаем код страны (например "NG" или "DE")
             const countryCode = d.country || '';
+            let locationHtml = 'Неизвестно';
             
-            // Получаем HTML-код картинки флага
-            const flagHtml = getFlagHtml(countryCode);
+            if (countryCode) {
+                // 1. Получаем русское название страны
+                const countryNameRu = getCountryNameRu(countryCode);
+                // 2. Получаем HTML картинки флага (с подсказкой при наведении)
+                const flagHtml = getFlagHtml(countryCode, countryNameRu);
+                
+                // 3. Склеиваем: ТОЛЬКО флаг и регион (Букв страны больше нет)
+                locationHtml = `${flagHtml} <span>${d.region || ''}</span>`;
+            }
             
-            // Формируем красивую строку с картинкой
-            let location = countryCode ? `${flagHtml} <strong>${countryCode}</strong>` : 'Неизвестно';
-            if (d.region) location += `, ${d.region}`;
-            
-            // Вставляем как HTML, чтобы картинка отрендерилась
-            document.getElementById('infoCountry').innerHTML = location;
+            document.getElementById('infoCountry').innerHTML = locationHtml;
             document.getElementById('infoCity').innerText = d.city || 'Неизвестно';
             
-            // Провайдер
             let isp = d.org || 'Неизвестно';
             isp = isp.replace(/^AS\d+\s/, ''); 
             
