@@ -579,6 +579,39 @@ def get_mtproto_stats():
         stats['uptime_formatted'] = "0д 0ч 0м"
     return stats
 
+def get_tls_handshakes():
+    log_file = '/var/log/nginx/stream_sni.log'
+    if not os.path.exists(log_file):
+        return []
+    try:
+        # Читаем последние 50 рукопожатий
+        res = subprocess.run(['tail', '-n', '50', log_file], capture_output=True, text=True)
+        handshakes = []
+        for line in reversed(res.stdout.split('\n')):
+            if not line.strip(): continue
+            parts = line.split(' | ')
+            if len(parts) >= 3:
+                time_str = parts[0].split(' ')[0] + ' ' + parts[0].split(' ')[1] # Убираем часовой пояс
+                ip = parts[1].strip()
+                sni_raw = parts[2].replace('SNI: ', '').replace('"', '').strip()
+                
+                # Если SNI пустой - это сканер по голому IP
+                is_suspicious = (sni_raw == "")
+                sni = sni_raw if sni_raw else "ПУСТО (IP Сканер / Без SNI)"
+                target = parts[3].replace('To: ', '').strip() if len(parts) > 3 else "Сброшено"
+
+                handshakes.append({
+                    'time': time_str,
+                    'ip': ip,
+                    'sni': sni,
+                    'target': target,
+                    'is_suspicious': is_suspicious
+                })
+        return handshakes
+    except:
+        return []
+
+
 # ========================================
 # АНАЛИТИКА САЙТА И БЕЗОПАСНОСТИ (ГЛАВНАЯ СТРАНИЦА)
 # ========================================
@@ -938,7 +971,8 @@ def vpn():
                            danted_connections=get_danted_connections(),
                            outline_metrics=get_outline_metrics(),
                            mtproto_stats=get_mtproto_stats(),
-                           dns_queries=get_dns_queries())
+                           dns_queries=get_dns_queries(),
+                           tls_handshakes=get_tls_handshakes()) # <--- ДОБАВИЛИ ЭТУ СТРОКУ
 
 @app.route('/vpn_users')
 @login_required
