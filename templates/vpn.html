@@ -217,7 +217,12 @@
                             {% for hs in tls_handshakes %}
                             <tr class="{% if hs.is_suspicious %}table-warning{% endif %}">
                                 <td class="ps-4 text-muted small">{{ hs.time }}</td>
-                                <td class="font-monospace">{{ hs.ip }}</td>
+                                <td class="font-monospace">
+                                    {{ hs.ip }}
+                                    {% if hs.count > 1 %}
+                                        <span class="badge bg-danger rounded-pill ms-2 shadow-sm" style="font-size: 0.75rem;">x{{ hs.count }}</span>
+                                    {% endif %}
+                                </td>
                                 <td class="font-monospace fw-bold {% if hs.is_suspicious %}text-danger{% else %}text-success{% endif %}">
                                     {% if hs.is_suspicious %}
                                         <span class="material-symbols-outlined align-middle fs-6">warning</span>
