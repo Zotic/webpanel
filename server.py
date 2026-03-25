@@ -584,33 +584,50 @@ def get_tls_handshakes():
     if not os.path.exists(log_file):
         return []
     try:
-        # Читаем последние 50 рукопожатий
-        res = subprocess.run(['tail', '-n', '50', log_file], capture_output=True, text=True)
-        handshakes = []
+        # Читаем больше строк (200), чтобы было из чего группировать
+        res = subprocess.run(['tail', '-n', '200', log_file], capture_output=True, text=True)
+        raw_handshakes = []
+        
+        # Разбираем строки
         for line in reversed(res.stdout.split('\n')):
             if not line.strip(): continue
             parts = line.split(' | ')
             if len(parts) >= 3:
-                time_str = parts[0].split(' ')[0] + ' ' + parts[0].split(' ')[1] # Убираем часовой пояс
+                time_str = parts[0].split(' ')[0] + ' ' + parts[0].split(' ')[1] 
                 ip = parts[1].strip()
                 sni_raw = parts[2].replace('SNI: ', '').replace('"', '').strip()
                 
-                # Если SNI пустой - это сканер по голому IP
-                is_suspicious = (sni_raw == "")
-                sni = sni_raw if sni_raw else "ПУСТО (IP Сканер / Без SNI)"
+                # Nginx пишет "-", если SNI нет
+                is_suspicious = (sni_raw == "" or sni_raw == "-")
+                sni = sni_raw if not is_suspicious else "БЕЗ ДОМЕНА (IP Сканер)"
                 target = parts[3].replace('To: ', '').strip() if len(parts) > 3 else "Сброшено"
 
-                handshakes.append({
+                raw_handshakes.append({
                     'time': time_str,
                     'ip': ip,
                     'sni': sni,
                     'target': target,
-                    'is_suspicious': is_suspicious
+                    'is_suspicious': is_suspicious,
+                    'count': 1 # Изначально 1 запрос
                 })
-        return handshakes
+
+        # Группируем одинаковые запросы подряд
+        grouped_handshakes = []
+        for hs in raw_handshakes:
+            if grouped_handshakes:
+                last = grouped_handshakes[-1]
+                # Если IP и SNI совпадают с предыдущим, просто увеличиваем счетчик
+                if last['ip'] == hs['ip'] and last['sni'] == hs['sni']:
+                    last['count'] += 1
+                    # Обновляем время на самое свежее (последнее)
+                    last['time'] = hs['time']
+                    continue
+            grouped_handshakes.append(hs)
+
+        # Возвращаем только 30 последних уникальных групп для чистоты UI
+        return grouped_handshakes[:30]
     except:
         return []
-
 
 # ========================================
 # АНАЛИТИКА САЙТА И БЕЗОПАСНОСТИ (ГЛАВНАЯ СТРАНИЦА)
