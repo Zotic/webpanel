@@ -289,10 +289,12 @@ def get_active_vpn_users():
             else:
                 outbound_ips[remote_ip] = outbound_ips.get(remote_ip, 0) + 1
 
-    # 2. Сбор подключений AmneziaWG
+# 2. Сбор подключений AmneziaWG (через Docker)
     try:
-        # ИЗМЕНЕНО НА amn0
-        res = subprocess.run(['awg', 'show', 'amn0', 'dump'], capture_output=True, text=True)
+        res = subprocess.run(['docker', 'exec', 'amnezia-awg2', 'awg', 'show', 'amn0', 'dump'], capture_output=True, text=True)
+        if not res.stdout.strip():
+            res = subprocess.run(['docker', 'exec', 'amnezia-awg2', 'awg', 'show', 'awg0', 'dump'], capture_output=True, text=True)
+            
         lines = res.stdout.strip().split('\n')
         if len(lines) > 1:
             for line in lines[1:]:
@@ -462,17 +464,21 @@ def analyze_proxy_logs():
 # --- AmneziaWG ---
 def get_awg_status():
     try:
-        # ИЗМЕНЕНО НА amn0
-        res = subprocess.run(['ip', 'link', 'show', 'amn0'], capture_output=True, text=True)
-        return "active" if "state UNKNOWN" in res.stdout or "state UP" in res.stdout else "inactive"
+        # Проверяем статус Docker-контейнера
+        res = run_command("docker inspect -f '{{.State.Status}}' amnezia-awg2")
+        return "active" if "running" in res.lower() else "inactive"
     except:
         return "unknown"
 
 def get_awg_metrics():
     data = []
     try:
-        # ИЗМЕНЕНО НА amn0
-        res = subprocess.run(['awg', 'show', 'amn0', 'dump'], capture_output=True, text=True)
+        # Выполняем команду awg show ВНУТРИ контейнера
+        # Пытаемся найти amn0, если нет - ищем стандартный awg0
+        res = subprocess.run(['docker', 'exec', 'amnezia-awg2', 'awg', 'show', 'amn0', 'dump'], capture_output=True, text=True)
+        if not res.stdout.strip():
+            res = subprocess.run(['docker', 'exec', 'amnezia-awg2', 'awg', 'show', 'awg0', 'dump'], capture_output=True, text=True)
+            
         lines = res.stdout.strip().split('\n')
         if not lines or len(lines) <= 1: return []
         
@@ -933,8 +939,13 @@ def vpn_users_page(): return render_template('vpn_users.html')
 # НАСТРОЙКИ AMNEZIA WG (РЕДАКТОР)
 # ========================================
 def get_awg_config_path():
-    # ИЗМЕНЕНО НА amn0.conf
-    paths = ['/etc/amnezia/amneziawg/amn0.conf', '/etc/wireguard/amn0.conf']
+    # Ищем во всех возможных папках, которые создает установщик Amnezia
+    paths = [
+        '/opt/amnezia/amnezia-awg2/amn0.conf',
+        '/opt/amnezia/amnezia-awg2/awg0.conf',
+        '/opt/amnezia/awg2/wg0.conf',
+        '/etc/amnezia/amneziawg/amn0.conf'
+    ]
     for p in paths:
         if os.path.exists(p): return p
     return paths[0]
@@ -945,7 +956,7 @@ def api_get_awg_config():
     path = get_awg_config_path()
     try:
         if not os.path.exists(path):
-            return jsonify({"success": False, "error": f"Файл {path} не найден."})
+            return jsonify({"success": False, "error": f"Файл конфига не найден по пути: {path}"})
         with open(path, 'r', encoding='utf-8') as f:
             return jsonify({"success": True, "content": f.read(), "path": path})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
@@ -958,10 +969,9 @@ def api_save_awg_config():
     if not content: return jsonify({"success": False, "error": "Пустой конфиг"})
     try:
         with open(path, 'w', encoding='utf-8') as f: f.write(content)
-        # ИЗМЕНЕНО НА amn0
-        run_command("wg-quick down amn0")
-        time.sleep(0.5)
-        run_command("wg-quick up amn0")
+        # Так как это Docker, нам достаточно просто перезагрузить контейнер!
+        # Внутренний скрипт Amnezia сам применит новые настройки при старте.
+        run_command("docker restart amnezia-awg2")
         return jsonify({"success": True})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
 
@@ -1219,9 +1229,9 @@ def api_vpn_action():
             run_command(f"systemctl {action_safe} {svc_safe}")
             
         elif service == 'awg':
-            wg_action = "up" if action in ["start", "restart"] else "down"
-            # ИЗМЕНЕНО НА amn0
-            run_command(f"wg-quick {wg_action} amn0")
+            container_safe = shlex.quote("amnezia-awg2")
+            action_safe = shlex.quote(action)
+            run_command(f"docker {action_safe} {container_safe}")
             
         elif service == 'mtproto': 
             container_safe = shlex.quote("mtprotoproxy-mtprotoproxy-1")
