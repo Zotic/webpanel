@@ -577,6 +577,11 @@ def get_tls_handshakes():
             if len(parts) >= 3:
                 time_str = parts[0].split(' ')[0] + ' ' + parts[0].split(' ')[1] 
                 ip = parts[1].strip()
+                
+                # ПРОПУСКАЕМ ЛОКАЛЬНЫЕ АДРЕСА
+                if ip in ('127.0.0.1', '::1', 'localhost'):
+                    continue
+                
                 sni_raw = parts[2].replace('SNI: ', '').replace('"', '').strip()
                 
                 is_suspicious = (sni_raw == "" or sni_raw == "-")
