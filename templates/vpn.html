@@ -23,7 +23,7 @@
     <div class="col">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body d-flex justify-content-between align-items-center p-3">
-                <span class="fw-bold text-secondary">Outline</span>
+                <span class="fw-bold text-secondary">AmneziaWG</span>
                 <div class="form-check form-switch fs-5 mb-0">
                     <input class="form-check-input" type="checkbox" style="cursor: pointer;" onchange="toggleVpn('outline', this.checked)" {% if outline_status %}checked{% endif %}>
                 </div>
@@ -65,7 +65,7 @@
 <!-- Вкладки (Tabs) -->
 <ul class="nav nav-pills mb-4 bg-white p-2 shadow-sm" id="vpnTabs" role="tablist" style="border-radius: 12px; display: inline-flex; overflow-x: auto; flex-wrap: nowrap; max-width: 100%;">
     <li class="nav-item"><button class="nav-link active fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-xray" type="button">Xray</button></li>
-    <li class="nav-item"><button class="nav-link fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-outline" type="button">Outline</button></li>
+    <li class="nav-item"><button class="nav-link fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-outline" type="button">AmneziaWG</button></li>
     <li class="nav-item"><button class="nav-link fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-mtproto" type="button">MTProto</button></li>
     <li class="nav-item"><button class="nav-link fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-3proxy" type="button">3proxy</button></li>
     <li class="nav-item"><button class="nav-link fw-bold px-3 text-nowrap" data-bs-toggle="tab" data-bs-target="#tab-danted" type="button">Danted</button></li>
@@ -113,33 +113,65 @@
         </div>
     </div>
 
-    <!-- ВКЛАДКА OUTLINE -->
-    <div class="tab-pane fade" id="tab-outline">
+<!-- ВКЛАДКА AMNEZIA WG -->
+    <div class="tab-pane fade" id="tab-awg">
         <div class="card border-0 shadow-sm mt-3">
             <div class="card-header bg-white py-3 border-bottom-0 d-flex justify-content-between align-items-center">
-                <span class="fw-bold">Статистика трафика Outline</span>
-                <button class="btn btn-sm btn-outline-danger shadow-sm" onclick="resetOutlineStats()">Сбросить статистику</button>
+                <span class="fw-bold">Клиенты AmneziaWG (Интерфейс awg0)</span>
+                <button class="btn btn-sm btn-outline-dark d-flex align-items-center gap-1 shadow-sm" onclick="openAwgConfig()">
+                    <span class="material-symbols-outlined fs-6">settings</span> Настройки (Конфиг)
+                </button>
             </div>
-            <div class="card-body p-0"><div class="table-responsive">
-                <table class="table align-middle mb-0 text-nowrap">
-                    <thead class="table-light"><tr><th class="ps-4" style="width: 80px;">ID</th><th>Имя пользователя / Ключ</th><th class="pe-4">Использовано трафика</th></tr></thead>
-                    <tbody>
-                        {% for item in outline_metrics %}<tr><td class="ps-4 text-muted font-monospace">{{ item.id }}</td><td class="fw-bold text-dark">{{ item.name }}</td><td class="pe-4"><span class="badge bg-info text-dark fs-6">{{ item.usage }}</span></td></tr>{% else %}<tr><td colspan="3" class="text-center py-4 text-muted">Данных Outline не найдено</td></tr>{% endfor %}
-                    </tbody>
-                </table>
-            </div></div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0 text-nowrap">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Статус</th>
+                                <th>Внутренний IP (Peer)</th>
+                                <th>Публичный Ключ</th>
+                                <th>IP Клиента</th>
+                                <th>Последний контакт</th>
+                                <th class="text-center">⬇ Скачано (TX)</th>
+                                <th class="text-center pe-4">⬆ Загружено (RX)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for peer in awg_metrics %}
+                            <tr>
+                                <td class="ps-4">
+                                    {% if peer.online %}
+                                        <span class="badge bg-success w-100">ОНЛАЙН</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary w-100">ОФФЛАЙН</span>
+                                    {% endif %}
+                                </td>
+                                <td class="fw-bold text-dark font-monospace">{{ peer.ips }}</td>
+                                <td class="text-muted font-monospace small">{{ peer.pubkey }}</td>
+                                <td class="font-monospace text-primary">{{ peer.endpoint }}</td>
+                                <td class="small">{{ peer.last_seen }}</td>
+                                <td class="text-center text-primary fw-bold">{{ peer.tx }}</td>
+                                <td class="text-center pe-4 text-success fw-bold">{{ peer.rx }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="7" class="text-center py-4 text-muted">Клиенты AWG не найдены или интерфейс выключен.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- ВКЛАДКА MTPROTO (НОВАЯ) -->
+<!-- ВКЛАДКА MTPROTO -->
     <div class="tab-pane fade" id="tab-mtproto">
-        <div class="row g-3">
+        <div class="row g-3 mt-3">
             <div class="col-md-4">
                 <div class="card border-0 shadow-sm bg-primary text-white h-100">
                     <div class="card-body text-center py-4">
                         <span class="material-symbols-outlined fs-1 mb-2">schedule</span>
-                        <h5 class="fw-bold mb-0">Аптайм сервера</h5>
-                        <p class="fs-4 fw-bold mb-0">{{ mtproto_stats.uptime_formatted }}</p>
+                        <h5 class="fw-bold mb-0">Аптайм прокси</h5>
+                        <p class="fs-4 fw-bold mb-0 mt-2">{{ mtproto_stats.uptime_formatted }}</p>
                     </div>
                 </div>
             </div>
@@ -148,17 +180,17 @@
                     <div class="card-body text-center py-4">
                         <span class="material-symbols-outlined fs-1 mb-2">people</span>
                         <h5 class="fw-bold mb-0">Активные подключения</h5>
-                        <p class="fs-2 fw-bold mb-0">{{ mtproto_stats.active_connections }}</p>
+                        <p class="fs-2 fw-bold mb-0 mt-2">{{ mtproto_stats.active_connections }}</p>
                         <small>Из общего числа: {{ mtproto_stats.total_connections }}</small>
                     </div>
                 </div>
             </div>
             <div class="col-md-4">
-                <div class="card border-0 shadow-sm bg-secondary text-white h-100">
+                <div class="card border-0 shadow-sm bg-info text-white h-100">
                     <div class="card-body text-center py-4">
-                        <span class="material-symbols-outlined fs-1 mb-2">info</span>
-                        <h5 class="fw-bold mb-0">Версия прокси</h5>
-                        <p class="mb-0 font-monospace mt-2" style="font-size: 0.85rem; word-break: break-all;">{{ mtproto_stats.version }}</p>
+                        <span class="material-symbols-outlined fs-1 mb-2">data_usage</span>
+                        <h5 class="fw-bold mb-0">Потрачено трафика</h5>
+                        <p class="fs-2 fw-bold mb-0 mt-2">{{ mtproto_stats.traffic }}</p>
                     </div>
                 </div>
             </div>
@@ -242,6 +274,32 @@
     </div>
 
 </div>
+
+<!-- Модальное окно: Редактор AmneziaWG -->
+<div class="modal fade" id="awgConfigModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark" style="border-radius: 12px; border: none; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div class="modal-header border-bottom-0">
+                <h5 class="modal-title fw-bold text-white d-flex align-items-center gap-2">
+                    <span class="material-symbols-outlined text-primary">edit_document</span> 
+                    Редактор <span id="awgConfigPathLabel" class="text-secondary fs-6"></span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-0">
+                <textarea id="awgConfigContent" class="form-control font-monospace text-info bg-dark" style="height: 500px; border: 1px solid #333; border-radius: 8px; font-size: 0.85rem;" spellcheck="false"></textarea>
+                <small class="text-muted mt-2 d-block">
+                    <span class="text-warning">Внимание:</span> Сохранение перезапустит интерфейс <code>awg0</code>. Текущие сессии клиентов будут кратковременно разорваны.
+                </small>
+            </div>
+            <div class="modal-footer border-top-0">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="awgSaveBtn" onclick="saveAwgConfig()">Сохранить и Перезапустить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -292,5 +350,69 @@
             else alert('Ошибка: ' + data.error);
         } catch (e) { console.error(e); }
     }
+
+// === Редактор конфига AmneziaWG ===
+    let awgConfigModal = null;
+
+    document.addEventListener("DOMContentLoaded", () => {
+        // Инициализируем модалку
+        const awgEl = document.getElementById('awgConfigModal');
+        if (awgEl) awgConfigModal = new bootstrap.Modal(awgEl);
+    });
+
+    async function openAwgConfig() {
+        document.getElementById('awgConfigContent').value = "Загрузка конфига...";
+        document.getElementById('awgConfigPathLabel').innerText = "";
+        awgConfigModal.show();
+
+        try {
+            const res = await fetch('/api/awg/get_config');
+            if (res.status === 401) { location.reload(); return; }
+            const data = await res.json();
+
+            if (data.success) {
+                document.getElementById('awgConfigContent').value = data.content;
+                document.getElementById('awgConfigPathLabel').innerText = data.path;
+            } else {
+                document.getElementById('awgConfigContent').value = "Ошибка: " + data.error;
+            }
+        } catch (e) {
+            document.getElementById('awgConfigContent').value = "Ошибка сети.";
+        }
+    }
+
+    async function saveAwgConfig() {
+        const content = document.getElementById('awgConfigContent').value;
+        const btn = document.getElementById('awgSaveBtn');
+        
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span> Применение...';
+
+        try {
+            const res = await fetch('/api/awg/save_config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: content })
+            });
+            
+            if (res.status === 401) { location.reload(); return; }
+            const data = await res.json();
+
+            if (data.success) {
+                awgConfigModal.hide();
+                // Ждем секунду и обновляем страницу, чтобы подтянулись новые пиры
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                alert('Ошибка сохранения: ' + data.error);
+            }
+        } catch (e) {
+            alert('Ошибка сети.');
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "Сохранить и Перезапустить";
+        }
+    }
+
+
 </script>
 {% endblock %}
