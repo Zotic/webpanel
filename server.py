@@ -6,14 +6,14 @@ import socket
 import time
 import psutil
 import urllib.request
-import shlex  # ДОБАВЛЕНО ДЛЯ БЕЗОПАСНОСТИ (защита от Command Injection)
+import shlex
 from datetime import datetime
 from functools import wraps, lru_cache
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 
 app = Flask(__name__)
 
-# ДОБАВЛЕНО ДЛЯ БЕЗОПАСНОСТИ: Если ключ не задан, генерируем случайный (сессии не будут взломаны)
+# Безопасный ключ сессий
 app.secret_key = os.getenv('PANEL_SECRET_KEY', os.urandom(24)) 
 ADMIN_USERNAME = os.getenv('PANEL_ADMIN_USER', 'admin')
 ADMIN_PASSWORD = os.getenv('PANEL_ADMIN_PASS', 'password')
@@ -76,26 +76,20 @@ def get_main_interface():
     try:
         out = run_command("ip route get 8.8.8.8")
         match = re.search(r'dev\s+([^\s]+)', out)
-        if match:
-            return match.group(1).strip()
+        if match: return match.group(1).strip()
     except: pass
-    
-    # Если команда выше не сработала, возвращаем ваш реальный интерфейс!
+    # Надежный фолбэк для вашего сервера
     return "enp3s0"
 
 def sync_tc_rules():
-    # 1. ЖЕСТКО прописываем ваш рабочий интерфейс
     iface = get_main_interface()
     limits = get_limits()
     iface_safe = shlex.quote(iface)
 
-    # Определяем путь к лог-файлу прямо рядом со скриптом server.py
     log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tc_debug.log")
     
-    # 2. Внутренняя функция, которая будет записывать КАЖДУЮ ошибку в tc_debug.log
     def do_tc(cmd):
         try:
-            # Убрали 2>/dev/null, чтобы видеть все системные ошибки
             res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(f"CMD: {cmd}\n")
@@ -105,48 +99,46 @@ def sync_tc_rules():
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(f"CRITICAL EXCEPTION: {str(e)}\n")
 
-    # 3. Начинаем новую запись в лог
     with open(log_file, "w", encoding="utf-8") as f:
         f.write(f"--- ЗАПУСК СИНХРОНИЗАЦИИ в {datetime.now()} ---\n")
-        f.write(f"Загружены лимиты: {limits}\n\n")
+        f.write(f"Интерфейс: {iface}\nЗагружены лимиты: {limits}\n\n")
 
-    # 4. УДАЛЯЕМ старые правила (Используем абсолютный путь /sbin/tc)
+    # УДАЛЯЕМ старые правила
     do_tc(f"/sbin/tc qdisc del dev {iface_safe} root")
     do_tc(f"/sbin/tc qdisc del dev {iface_safe} ingress")
 
     if not limits:
         return
 
-    # 5. ИНИЦИАЛИЗАЦИЯ
+    # ИНИЦИАЛИЗАЦИЯ
     do_tc(f"/sbin/tc qdisc add dev {iface_safe} root handle 1: htb default 10")
     do_tc(f"/sbin/tc class add dev {iface_safe} parent 1: classid 1:1 htb rate 10000mbit")
     do_tc(f"/sbin/tc class add dev {iface_safe} parent 1:1 classid 1:10 htb rate 10000mbit")
     do_tc(f"/sbin/tc qdisc add dev {iface_safe} handle ffff: ingress")
 
-    # 6. ПРИМЕНЕНИЕ ПРАВИЛ
+    # ПРИМЕНЕНИЕ ПРАВИЛ
     for ip, data in limits.items():
         cid = str(data['class_id'])
         try: speed = str(int(data['speed']))
         except: continue
 
-        # БЕЗОПАСНОСТЬ: Экранируем переменные (Защита от инъекций)
         ip_safe = shlex.quote(ip)
         cid_safe = shlex.quote(cid)
         speed_safe = shlex.quote(speed)
 
-        # Download (От сервера к клиенту)
+        # Download
         do_tc(f"/sbin/tc class add dev {iface_safe} parent 1:1 classid 1:{cid_safe} htb rate {speed_safe}mbit ceil {speed_safe}mbit burst 15k")
         if ':' in ip:
             do_tc(f"/sbin/tc filter add dev {iface_safe} protocol ipv6 parent 1:0 prio 1 u32 match ip6 dst {ip_safe} flowid 1:{cid_safe}")
         else:
             do_tc(f"/sbin/tc filter add dev {iface_safe} protocol ip parent 1:0 prio 1 u32 match ip dst {ip_safe}/32 flowid 1:{cid_safe}")
 
-        # Upload (От клиента к серверу)
+        # Upload
         if ':' in ip:
             do_tc(f"/sbin/tc filter add dev {iface_safe} parent ffff: protocol ipv6 prio 1 u32 match ip6 src {ip_safe} police rate {speed_safe}mbit burst 1m drop flowid :1")
         else:
             do_tc(f"/sbin/tc filter add dev {iface_safe} parent ffff: protocol ip prio 1 u32 match ip src {ip_safe}/32 police rate {speed_safe}mbit burst 1m drop flowid :1")
-# При запуске сервера сразу синхронизируем правила
+
 sync_tc_rules()
 
 # ========================================
@@ -193,7 +185,7 @@ def get_bots():
         if file.startswith(SERVICE_PREFIX) and file.endswith(".service"):
             bot_name = file[len(SERVICE_PREFIX):-8]
             service_name = file
-            svc_safe = shlex.quote(service_name) # Защита
+            svc_safe = shlex.quote(service_name)
             
             status = run_command(f"systemctl is-active {svc_safe}")
             logs = run_command(f"journalctl -u {svc_safe} -n 15 --no-pager --output=cat")
@@ -249,18 +241,16 @@ def get_all_services():
         return []
 
 # ========================================
-# ФУНКЦИИ ДЛЯ VPN / XRAY / OUTLINE / ПРОКСИ
+# ФУНКЦИИ ДЛЯ VPN / ПРОКСИ / AMNEZIA
 # ========================================
 _proxy_pids_cache = set()
 _proxy_pids_time = 0
-_outline_cache = ({}, {})
-_outline_time = 0
 
 def get_proxy_pids():
     global _proxy_pids_cache, _proxy_pids_time
     if time.time() - _proxy_pids_time > 15:
         pids = set()
-        proxy_names = ['xray', '3proxy', 'danted', 'shadowbox', 'docker-proxy', 'mtproto-proxy']
+        proxy_names = ['xray', '3proxy', 'danted']
         for proc in psutil.process_iter(['pid', 'name']):
             try:
                 name = proc.info['name'].lower()
@@ -270,42 +260,6 @@ def get_proxy_pids():
         _proxy_pids_cache = pids
         _proxy_pids_time = time.time()
     return _proxy_pids_cache
-
-def get_outline_connections():
-    global _outline_cache, _outline_time
-    # ОПТИМИЗАЦИЯ: Увеличиваем кэш с 3 до 10 секунд, чтобы не убить CPU Docker-ом
-    if time.time() - _outline_time < 10: return _outline_cache
-
-    inbound, outbound = {}, {}
-    container_name = "shadowbox"
-    try:
-        res = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'], capture_output=True, text=True)
-        if 'shadowbox' not in res.stdout:
-            res2 = subprocess.run(['docker', 'ps', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
-            if res2.stdout.strip(): container_name = res2.stdout.strip().split('\n')[0]
-            
-        net_res = subprocess.run(['docker', 'exec', container_name, 'netstat', '-tun'], capture_output=True, text=True)
-        for line in net_res.stdout.split('\n'):
-            line = line.strip()
-            if 'ESTABLISHED' in line or line.startswith('udp'):
-                parts = line.split()
-                if len(parts) >= 5:
-                    local_addr, foreign_addr = parts[3], parts[4]
-                    if ':' not in local_addr or ':' not in foreign_addr: continue
-                    f_ip, f_port = foreign_addr.rsplit(':', 1)
-                    l_ip, l_port = local_addr.rsplit(':', 1)
-                    f_ip = f_ip.replace('::ffff:', '')
-                    if f_ip in ('127.0.0.1', '::1', '0.0.0.0', '*'): continue
-                    try:
-                        f_port_num, l_port_num = int(f_port), int(l_port)
-                        if f_port_num < 10240 and l_port_num > 10240: outbound[f_ip] = outbound.get(f_ip, 0) + 1
-                        else: inbound[f_ip] = inbound.get(f_ip, 0) + 1
-                    except: pass
-    except: pass
-    
-    _outline_cache = (inbound, outbound)
-    _outline_time = time.time()
-    return _outline_cache
 
 def get_active_vpn_users():
     proxy_pids = get_proxy_pids()
@@ -322,6 +276,7 @@ def get_active_vpn_users():
             if conn.status == 'LISTEN' or conn.type == socket.SOCK_DGRAM:
                 listening_ports.add(conn.laddr.port)
 
+    # 1. Сбор стандартных VPN-подключений
     for conn in psutil.net_connections(kind='inet'):
         if conn.pid in proxy_pids and conn.raddr:
             remote_ip = conn.raddr.ip
@@ -334,9 +289,22 @@ def get_active_vpn_users():
             else:
                 outbound_ips[remote_ip] = outbound_ips.get(remote_ip, 0) + 1
 
-    out_inbound, out_outbound = get_outline_connections()
-    for ip, count in out_inbound.items(): inbound_ips[ip] = inbound_ips.get(ip, 0) + count
-    for ip, count in out_outbound.items(): outbound_ips[ip] = outbound_ips.get(ip, 0) + count
+    # 2. Сбор подключений AmneziaWG
+    try:
+        res = subprocess.run(['awg', 'show', 'awg0', 'dump'], capture_output=True, text=True)
+        lines = res.stdout.strip().split('\n')
+        if len(lines) > 1:
+            for line in lines[1:]:
+                parts = line.split('\t')
+                if len(parts) >= 8:
+                    endpoint = parts[2]
+                    latest_handshake = int(parts[4])
+                    if latest_handshake > 0 and endpoint != "(none)":
+                        diff = int(time.time()) - latest_handshake
+                        if diff < 180:
+                            real_ip = endpoint.split(':')[0]
+                            inbound_ips[real_ip] = inbound_ips.get(real_ip, 0) + 1
+    except: pass
 
     return inbound_ips, outbound_ips
 
@@ -490,105 +458,110 @@ def analyze_proxy_logs():
     final_ip_to_users = {ip: ", ".join(users) for ip, users in ip_to_users.items()}
     return final_ip_to_users, final_target_to_user
 
-def get_outline_status():
+# --- AmneziaWG ---
+def get_awg_status():
     try:
-        res = subprocess.run(['docker', 'ps', '--filter', 'name=shadowbox', '--format', '{{.Status}}'], capture_output=True, text=True)
-        return "active" if "Up" in res.stdout else "inactive"
-    except: return "unknown"
+        res = subprocess.run(['ip', 'link', 'show', 'awg0'], capture_output=True, text=True)
+        return "active" if "state UNKNOWN" in res.stdout or "state UP" in res.stdout else "inactive"
+    except:
+        return "unknown"
 
-def get_outline_metrics():
+def get_awg_metrics():
     data = []
-    keys_info = {}
-    config_path = '/opt/outline/persisted-state/shadowbox_config.json'
     try:
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-                keys_list = config.get('accessKeys', config.get('keys', []))
-                for k in keys_list:
-                    kid = str(k.get('id'))
-                    name = k.get('name')
-                    keys_info[kid] = name if name else f"Без имени (ID: {kid})"
-    except: pass
+        res = subprocess.run(['awg', 'show', 'awg0', 'dump'], capture_output=True, text=True)
+        lines = res.stdout.strip().split('\n')
+        if not lines or len(lines) <= 1: return []
+        
+        for line in lines[1:]:
+            parts = line.split('\t')
+            if len(parts) >= 8:
+                pubkey = parts[0][:8] + "..." 
+                endpoint = parts[2] if parts[2] != "(none)" else "Оффлайн"
+                allowed_ips = parts[3]
+                latest_handshake = int(parts[4])
+                transfer_rx = int(parts[5]) 
+                transfer_tx = int(parts[6]) 
+                
+                if latest_handshake == 0:
+                    last_seen = "Никогда"
+                    is_online = False
+                else:
+                    diff = int(time.time()) - latest_handshake
+                    is_online = diff < 180 
+                    if diff < 60: last_seen = f"{diff} сек назад"
+                    elif diff < 3600: last_seen = f"{diff // 60} мин назад"
+                    elif diff < 86400: last_seen = f"{diff // 3600} часов назад"
+                    else: last_seen = f"{diff // 86400} дней назад"
 
-    container_name = "shadowbox"
-    try:
-        res = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'], capture_output=True, text=True)
-        if 'shadowbox' not in res.stdout:
-            res2 = subprocess.run(['docker', 'ps', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
-            if res2.stdout.strip(): container_name = res2.stdout.strip().split('\n')[0]
-    except: pass
+                def format_bytes(b):
+                    if b > 1024**3: return f"{(b / 1024**3):.2f} GB"
+                    elif b > 1024**2: return f"{(b / 1024**2):.2f} MB"
+                    else: return f"{(b / 1024):.2f} KB"
 
-    metrics_dict = {}
-    try:
-        res = subprocess.run(['docker', 'exec', container_name, 'wget', '-qO-', 'http://localhost:9092/metrics'], capture_output=True, text=True)
-        if not res.stdout.strip():
-             res = subprocess.run(['docker', 'exec', container_name, 'curl', '-s', 'http://localhost:9092/metrics'], capture_output=True, text=True)
-        for line in res.stdout.split('\n'):
-            if line.startswith('shadowsocks_data_bytes'):
-                match = re.search(r'access_key="([^"]+)"', line)
-                if match:
-                    kid = match.group(1)
-                    try: metrics_dict[kid] = metrics_dict.get(kid, 0) + float(line.split()[-1])
-                    except: pass
+                data.append({
+                    'pubkey': pubkey, 'endpoint': endpoint, 'ips': allowed_ips,
+                    'last_seen': last_seen, 'online': is_online,
+                    'rx': format_bytes(transfer_rx), 'tx': format_bytes(transfer_tx)
+                })
     except: pass
-
-    for kid, bytes_total in metrics_dict.items():
-        name = keys_info.get(kid, f"Неизвестный ключ (ID: {kid})")
-        if bytes_total > 1024**3: usage = f"{(bytes_total / 1024**3):.2f} GB"
-        else: usage = f"{(bytes_total / 1024**2):.2f} MB"
-        data.append({'id': kid, 'name': name, 'usage': usage, 'raw_bytes': bytes_total})
-    data.sort(key=lambda x: x['raw_bytes'], reverse=True)
     return data
 
+# --- MTProto (Docker) ---
 def get_mtproto_status():
     try:
-        # Проверяем статус службы systemd, а не docker контейнера
-        status = run_command("systemctl is-active mtproxy.service")
-        return "active" if status == "active" else "inactive"
+        res = run_command("docker inspect -f '{{.State.Status}}' mtprotoproxy-mtprotoproxy-1")
+        return "active" if "running" in res.lower() else "inactive"
     except: return "unknown"
 
 def get_mtproto_stats():
-    stats = {"uptime": "0", "active_connections": "-", "total_connections": "-", "version": "Systemd Service"}
-    try:
-        # Получаем время запуска службы (ActiveEnterTimestamp)
-        res = run_command("systemctl show -p ActiveEnterTimestamp mtproxy.service")
-        match = re.search(r'ActiveEnterTimestamp=(.*)', res)
-        if match and match.group(1):
-            time_str = match.group(1).strip()
-            # Формат: "Wed 2023-10-25 15:30:00 UTC" или "2023-10-25 15:30:00"
-            if time_str != 'n/a':
-                try:
-                    # Пытаемся распарсить дату (зависит от локали, поэтому берем простой способ)
-                    cmd = f"date -d '{time_str}' +%s"
-                    start_time = int(run_command(cmd))
-                    stats['uptime'] = str(int(time.time() - start_time))
-                except: pass
-    except: pass
+    stats = {
+        "uptime_formatted": "0д 0ч 0м", 
+        "active_connections": "0", 
+        "total_connections": "0", 
+        "traffic": "0 MB"
+    }
+    container_name = "mtprotoproxy-mtprotoproxy-1"
     
     try:
-        secs = int(stats['uptime'])
-        if secs > 0:
-            m, s = divmod(secs, 60)
-            h, m = divmod(m, 60)
-            d, h = divmod(h, 24)
-            stats['uptime_formatted'] = f"{d}д {h}ч {m}м"
-        else:
-            stats['uptime_formatted'] = "0д 0ч 0м"
-    except:
-        stats['uptime_formatted'] = "0д 0ч 0м"
+        started_at = run_command(f"docker inspect -f '{{{{.State.StartedAt}}}}' {container_name}")
+        if started_at and not started_at.startswith('0001'):
+            clean_time = started_at.split('.')[0].replace('T', ' ')
+            dt = datetime.strptime(clean_time, "%Y-%m-%d %H:%M:%S")
+            diff = int(datetime.utcnow().timestamp() - dt.timestamp())
+            if diff > 0:
+                m, s = divmod(diff, 60)
+                h, m = divmod(m, 60)
+                d, h = divmod(h, 24)
+                stats['uptime_formatted'] = f"{d}д {h}ч {m}м"
+    except: pass
+
+    try:
+        logs = run_command(f"docker logs --tail 100 {container_name}")
+        last_tg_line = None
+        for line in reversed(logs.split('\n')):
+            if line.strip().startswith('tg:'):
+                last_tg_line = line.strip()
+                break
+        
+        if last_tg_line:
+            match = re.search(r'tg:\s+(\d+)\s+connects\s+\((\d+)\s+current\),\s+([\d\.]+\s+[A-Za-z]+)', last_tg_line)
+            if match:
+                stats['total_connections'] = match.group(1)
+                stats['active_connections'] = match.group(2)
+                stats['traffic'] = match.group(3)
+    except: pass
+    
     return stats
 
+# --- TLS Handshakes (Nginx Stream) ---
 def get_tls_handshakes():
     log_file = '/var/log/nginx/stream_sni.log'
-    if not os.path.exists(log_file):
-        return []
+    if not os.path.exists(log_file): return []
     try:
-        # Читаем больше строк (200), чтобы было из чего группировать
         res = subprocess.run(['tail', '-n', '200', log_file], capture_output=True, text=True)
         raw_handshakes = []
         
-        # Разбираем строки
         for line in reversed(res.stdout.split('\n')):
             if not line.strip(): continue
             parts = line.split(' | ')
@@ -597,40 +570,30 @@ def get_tls_handshakes():
                 ip = parts[1].strip()
                 sni_raw = parts[2].replace('SNI: ', '').replace('"', '').strip()
                 
-                # Nginx пишет "-", если SNI нет
                 is_suspicious = (sni_raw == "" or sni_raw == "-")
                 sni = sni_raw if not is_suspicious else "БЕЗ ДОМЕНА (IP Сканер)"
                 target = parts[3].replace('To: ', '').strip() if len(parts) > 3 else "Сброшено"
 
                 raw_handshakes.append({
-                    'time': time_str,
-                    'ip': ip,
-                    'sni': sni,
-                    'target': target,
-                    'is_suspicious': is_suspicious,
-                    'count': 1 # Изначально 1 запрос
+                    'time': time_str, 'ip': ip, 'sni': sni,
+                    'target': target, 'is_suspicious': is_suspicious, 'count': 1
                 })
 
-        # Группируем одинаковые запросы подряд
         grouped_handshakes = []
         for hs in raw_handshakes:
             if grouped_handshakes:
                 last = grouped_handshakes[-1]
-                # Если IP и SNI совпадают с предыдущим, просто увеличиваем счетчик
                 if last['ip'] == hs['ip'] and last['sni'] == hs['sni']:
                     last['count'] += 1
-                    # Обновляем время на самое свежее (последнее)
                     last['time'] = hs['time']
                     continue
             grouped_handshakes.append(hs)
 
-        # Возвращаем только 30 последних уникальных групп для чистоты UI
         return grouped_handshakes[:30]
-    except:
-        return []
+    except: return []
 
 # ========================================
-# АНАЛИТИКА САЙТА И БЕЗОПАСНОСТИ (ГЛАВНАЯ СТРАНИЦА)
+# АНАЛИТИКА САЙТА И БЕЗОПАСНОСТИ
 # ========================================
 APP_START_TIME = time.time()
 
@@ -700,7 +663,6 @@ def api_site_analytics():
     def add_event(ip, time_str, source, severity, msg):
         color = "success"
         verdict = "Посетитель сайта / VPN"
-        
         if severity == 2:
             color = "danger"
             verdict = "Сканер / Бот / Брутфорс"
@@ -718,7 +680,6 @@ def api_site_analytics():
             "source": source, "verdict": verdict, "color": color, "msg": msg
         })
 
-    # 1. NGINX
     try:
         if os.path.exists('/var/log/nginx/access.log'):
             res_nginx = subprocess.run(['tail', '-n', '1000', '/var/log/nginx/access.log'], capture_output=True, text=True)
@@ -729,23 +690,18 @@ def api_site_analytics():
                     ip_date = parts[0].strip()
                     request_info = parts[1]
                     status_code = parts[2].strip().split()[0]
-                    
                     ip_match = re.search(r'^([\d\.]+)', ip_date)
                     date_match = re.search(r'\[(.*?) \+', ip_date)
-                    
                     if ip_match and date_match:
                         ip = ip_match.group(1)
                         if ip == '127.0.0.1': continue
-                        
                         time_str = parse_nginx_date(date_match.group(1))
                         req_type = "POST" if request_info.startswith('POST') else "GET"
                         desc = f"Запрос {req_type}: '{request_info}' (Ответ: {status_code})"
-                        
                         severity = 2 if status_code == '301' or status_code.startswith(('4', '5')) else 0
                         add_event(ip, time_str, "Nginx", severity, desc)
     except: pass
 
-    # 2. XRAY (ACCESS)
     try:
         res_xray_access = subprocess.run(['tail', '-n', '1000', '/var/log/xray/access.log'], capture_output=True, text=True)
         for line in res_xray_access.stdout.split('\n'):
@@ -753,20 +709,16 @@ def api_site_analytics():
             match = re.search(r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}).*?(?:from\s+)?([a-fA-F0-9\.:]+):\d+\s+accepted\s+[a-zA-Z0-9]+:([a-zA-Z0-9\.\-]+):(\d+)', line)
             if match:
                 time_raw, client_ip, dest_ip, port = match.groups()
-                
                 date_part, time_part = time_raw.split()
                 y, m, d = date_part.split('/')
                 time_str = f"{d}.{m}.{y} {time_part}"
-                
                 user = ""
                 email_match = re.search(r'email:\s*([^\s]+)', line)
                 if email_match: user = f" (Юзер: {email_match.group(1)})"
-                
                 desc = f"Успешное VPN подключение к {dest_ip}:{port}{user}"
                 add_event(client_ip, time_str, "Xray", 0, desc)
     except: pass
 
-    # 3. XRAY (JOURNALCTL)
     try:
         res_xray_journal = subprocess.run(['journalctl', '-u', 'xray', '-n', '1000', '--no-pager'], capture_output=True, text=True)
         xray_sessions = {}
@@ -778,25 +730,17 @@ def api_site_analytics():
                 date_part, time_part = time_raw.split()
                 y, m, d = date_part.split('/')
                 time_str = f"{d}.{m}.{y} {time_part}"
-                
                 conn_id = match.group(2)
                 msg = match.group(3)
-                
-                if conn_id not in xray_sessions:
-                    xray_sessions[conn_id] = {"time": time_str, "ip": None, "messages": []}
-                
+                if conn_id not in xray_sessions: xray_sessions[conn_id] = {"time": time_str, "ip": None, "messages": []}
                 xray_sessions[conn_id]["messages"].append(msg)
-                
                 ip_match = re.search(r'->([\d\.]+):\d+', msg)
-                if ip_match:
-                    xray_sessions[conn_id]["ip"] = ip_match.group(1)
+                if ip_match: xray_sessions[conn_id]["ip"] = ip_match.group(1)
                     
         for conn_id, s in xray_sessions.items():
             ip = s["ip"]
             if not ip: continue 
-            
             full_msg = " ".join(s["messages"])
-            
             if 'not look like a TLS handshake' in full_msg or 'invalid request version' in full_msg:
                 add_event(ip, s["time"], "Xray", 2, "Ошибка TLS (Попытка не-VPN запроса или сканирования 443 порта)")
             elif 'fallback starts' in full_msg:
@@ -805,7 +749,6 @@ def api_site_analytics():
                 add_event(ip, s["time"], "Xray", 1, f"Трафик не распознан VPN. Переброшен в Nginx (Fallback){sni}")
     except: pass
 
-    # 4. UFW
     try:
         res_ufw = subprocess.run(['journalctl', '-k', '--grep=UFW BLOCK', '-n', '200', '--no-pager'], capture_output=True, text=True)
         for line in res_ufw.stdout.split('\n'):
@@ -813,31 +756,25 @@ def api_site_analytics():
             src_m = re.search(r'SRC=([\d\.]+)', line)
             dpt_m = re.search(r'DPT=(\d+)', line)
             proto_m = re.search(r'PROTO=(\w+)', line)
-            
             if src_m:
                 ip = src_m.group(1)
                 dpt = dpt_m.group(1) if dpt_m else "?"
                 proto = proto_m.group(1) if proto_m else "TCP"
                 time_str = parse_syslog_date(line)
-                
                 add_event(ip, time_str, "UFW", 2, f"Заблокирован вход на закрытый порт {dpt} ({proto})")
     except: pass
 
-    # 5. SSH
     try:
         res_ssh = subprocess.run(['tail', '-n', '500', '/var/log/auth.log'], capture_output=True, text=True)
         for line in res_ssh.stdout.split('\n'):
             if not line.strip(): continue
             if 'sshd' not in line: continue
-            
             time_str = parse_syslog_date(line)
-            
             if 'Failed password' in line:
                 ip_m = re.search(r'from ([\d\.]+)', line)
                 user_m = re.search(r'for (?:invalid user )?([^\s]+) from', line)
                 if ip_m and user_m:
                     add_event(ip_m.group(1), time_str, "SSH", 2, f"Неудачный подбор пароля для пользователя '{user_m.group(1)}'")
-            
             elif 'Connection closed by invalid user' in line or 'Invalid user' in line:
                 ip_m = re.search(r'([\d\.]+)', line.split('from')[-1]) if 'from' in line else None
                 user_m = re.search(r'user ([^\s]+)', line)
@@ -845,10 +782,8 @@ def api_site_analytics():
                     add_event(ip_m.group(1), time_str, "SSH", 2, f"Отклонен инвалидный пользователь: '{user_m.group(1)}'")
     except: pass
 
-    # Слияние
     raw_logs.sort(key=lambda x: x['dt_obj'])
     merged_logs = []
-    
     for log in raw_logs:
         merged = False
         if merged_logs:
@@ -856,12 +791,10 @@ def api_site_analytics():
             if last['ip'] == log['ip'] and last['source'] == log['source'] and last['verdict'] == log['verdict']:
                 time_diff = (log['dt_obj'] - last['dt_obj']).total_seconds()
                 if 0 <= time_diff <= 3:
-                    if log['msg'] not in last['messages']:
-                        last['messages'].append(log['msg'])
+                    if log['msg'] not in last['messages']: last['messages'].append(log['msg'])
                     last['dt_obj'] = log['dt_obj']
                     last['time'] = log['time']
                     merged = True
-        
         if not merged:
             merged_logs.append({
                 "dt_obj": log['dt_obj'], "time": log['time'], "ip": log['ip'],
@@ -870,14 +803,11 @@ def api_site_analytics():
             })
 
     merged_logs.sort(key=lambda x: x['dt_obj'], reverse=True)
-
-    for m in merged_logs:
-        del m['dt_obj']
-
+    for m in merged_logs: del m['dt_obj']
     return jsonify({"success": True, "logs": merged_logs[:150]})
 
 # ========================================
-# АНАЛИЗАТОР ДИСКА (WinDirStat)
+# АНАЛИТИКА ДИСКА
 # ========================================
 def get_dir_size(path):
     total = 0
@@ -895,33 +825,39 @@ def get_dir_size(path):
 @login_required
 def api_disk_usage():
     current_path = request.json.get('path', '/')
-    if not os.path.isdir(current_path):
-        current_path = '/'
-        
+    if not os.path.isdir(current_path): current_path = '/'
     items = []
     if current_path != '/':
-        parent = os.path.dirname(current_path)
-        items.append({"name": "..", "path": parent, "type": "up", "size": -1})
-        
+        items.append({"name": "..", "path": os.path.dirname(current_path), "type": "up", "size": -1})
     try:
         for entry in os.scandir(current_path):
             try:
                 if entry.is_symlink(): continue
                 if entry.is_dir(follow_symlinks=False):
-                    size = get_dir_size(entry.path)
-                    items.append({"name": entry.name, "path": entry.path, "type": "dir", "size": size})
+                    items.append({"name": entry.name, "path": entry.path, "type": "dir", "size": get_dir_size(entry.path)})
                 else:
-                    size = entry.stat(follow_symlinks=False).st_size
-                    items.append({"name": entry.name, "path": entry.path, "type": "file", "size": size})
+                    items.append({"name": entry.name, "path": entry.path, "type": "file", "size": entry.stat(follow_symlinks=False).st_size})
             except: pass
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
+    except Exception as e: return jsonify({"success": False, "error": str(e)})
     items.sort(key=lambda x: (x['type'] != 'up', x['size']), reverse=True)
     return jsonify({"success": True, "path": current_path, "items": items})
 
+@app.route('/api/read_file', methods=['POST'])
+@login_required
+def api_read_file():
+    file_path = request.json.get('path')
+    if not file_path or not os.path.isfile(file_path):
+        return jsonify({"success": False, "error": "Файл не найден или это директория"})
+    try:
+        if os.path.getsize(file_path) > 2 * 1024 * 1024:
+            return jsonify({"success": False, "error": "Файл слишком большой (> 2 МБ)."})
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return jsonify({"success": True, "content": f.read()})
+    except UnicodeDecodeError: return jsonify({"success": False, "error": "Это бинарный файл."})
+    except Exception as e: return jsonify({"success": False, "error": str(e)})
+
 # ========================================
-# МАРШРУТЫ (Сайт)
+# МАРШРУТЫ САЙТА
 # ========================================
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -951,28 +887,23 @@ def index():
 
 @app.route('/site_stats')
 @login_required
-def site_stats_page():
-    return redirect(url_for('index'))
+def site_stats_page(): return redirect(url_for('index'))
 
 @app.route('/bots')
 @login_required
-def bots():
-    return render_template('bots.html', bots=get_bots())
+def bots(): return render_template('bots.html', bots=get_bots())
 
 @app.route('/services')
 @login_required
-def system_services():
-    return render_template('services.html', services=get_all_services())
+def system_services(): return render_template('services.html', services=get_all_services())
 
 @app.route('/monitor')
 @login_required
-def system_monitor():
-    return render_template('monitor.html')
+def system_monitor(): return render_template('monitor.html')
 
 @app.route('/logs')
 @login_required
-def system_logs_page():
-    return render_template('logs.html')
+def system_logs_page(): return render_template('logs.html')
 
 @app.route('/vpn')
 @login_required
@@ -981,51 +912,57 @@ def vpn():
                            xray_status=run_command("systemctl is-active xray") == "active",
                            proxy_status=run_command("systemctl is-active 3proxy") == "active",
                            danted_status=run_command("systemctl is-active danted") == "active",
-                           outline_status=(get_outline_status() == "active"),
+                           awg_status=(get_awg_status() == "active"),
                            mtproto_status=(get_mtproto_status() == "active"),
                            xray_connections=get_recent_connections(),
                            proxy_connections=get_3proxy_connections(),
                            danted_connections=get_danted_connections(),
-                           outline_metrics=get_outline_metrics(),
+                           awg_metrics=get_awg_metrics(),
                            mtproto_stats=get_mtproto_stats(),
                            dns_queries=get_dns_queries(),
-                           tls_handshakes=get_tls_handshakes()) # <--- ДОБАВИЛИ ЭТУ СТРОКУ
+                           tls_handshakes=get_tls_handshakes())
 
 @app.route('/vpn_users')
 @login_required
-def vpn_users_page():
-    return render_template('vpn_users.html')
+def vpn_users_page(): return render_template('vpn_users.html')
 
 # ========================================
-# МАРШРУТЫ (API)
+# НАСТРОЙКИ AMNEZIA WG (РЕДАКТОР)
 # ========================================
+def get_awg_config_path():
+    paths = ['/etc/amnezia/amneziawg/awg0.conf', '/etc/wireguard/awg0.conf']
+    for p in paths:
+        if os.path.exists(p): return p
+    return paths[0]
 
-@app.route('/api/read_file', methods=['POST'])
+@app.route('/api/awg/get_config', methods=['GET'])
 @login_required
-def api_read_file():
-    file_path = request.json.get('path')
-    
-    if not file_path or not os.path.isfile(file_path):
-        return jsonify({"success": False, "error": "Файл не найден или это директория"})
-
+def api_get_awg_config():
+    path = get_awg_config_path()
     try:
-        # Защита от зависания браузера: читаем максимум 2 Мегабайта
-        file_size = os.path.getsize(file_path)
-        if file_size > 2 * 1024 * 1024:
-            return jsonify({"success": False, "error": "Файл слишком большой (> 2 МБ). Предпросмотр недоступен."})
+        if not os.path.exists(path):
+            return jsonify({"success": False, "error": f"Файл {path} не найден."})
+        with open(path, 'r', encoding='utf-8') as f:
+            return jsonify({"success": True, "content": f.read(), "path": path})
+    except Exception as e: return jsonify({"success": False, "error": str(e)})
 
-        # Пытаемся прочитать как текст (UTF-8)
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-        return jsonify({"success": True, "content": content})
-    except UnicodeDecodeError:
-        # Если UTF-8 выдал ошибку, значит это бинарный файл (картинка, архив, исполняемый файл)
-        return jsonify({"success": False, "error": "Это бинарный файл. Его нельзя отобразить как текст."})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+@app.route('/api/awg/save_config', methods=['POST'])
+@login_required
+def api_save_awg_config():
+    content = request.json.get('content')
+    path = get_awg_config_path()
+    if not content: return jsonify({"success": False, "error": "Пустой конфиг"})
+    try:
+        with open(path, 'w', encoding='utf-8') as f: f.write(content)
+        run_command("wg-quick down awg0")
+        time.sleep(0.5)
+        run_command("wg-quick up awg0")
+        return jsonify({"success": True})
+    except Exception as e: return jsonify({"success": False, "error": str(e)})
 
-# НОВОЕ: ЧТЕНИЕ ФАЙЛА SYSTEMD
+# ========================================
+# API ОСНОВНЫЕ
+# ========================================
 @app.route('/api/get_service_file', methods=['POST'])
 @login_required
 def api_get_service_file():
@@ -1034,13 +971,9 @@ def api_get_service_file():
     svc_name = f"{SERVICE_PREFIX}{bot_name}.service"
     file_path = os.path.join(SYSTEMD_DIR, svc_name)
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return jsonify({"success": True, "content": content})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        with open(file_path, 'r', encoding='utf-8') as f: return jsonify({"success": True, "content": f.read()})
+    except Exception as e: return jsonify({"success": False, "error": str(e)})
 
-# НОВОЕ: СОХРАНЕНИЕ ФАЙЛА SYSTEMD
 @app.route('/api/save_service_file', methods=['POST'])
 @login_required
 def api_save_service_file():
@@ -1050,13 +983,10 @@ def api_save_service_file():
     svc_name = f"{SERVICE_PREFIX}{bot_name}.service"
     file_path = os.path.join(SYSTEMD_DIR, svc_name)
     try:
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        with open(file_path, 'w', encoding='utf-8') as f: f.write(content)
         run_command("systemctl daemon-reload")
         return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
+    except Exception as e: return jsonify({"success": False, "error": str(e)})
 
 @app.route('/api/files', methods=['POST'])
 @login_required
@@ -1082,8 +1012,6 @@ def add_bot():
     svc_name = f"{SERVICE_PREFIX}{bot_name}.service"
     with open(os.path.join(SYSTEMD_DIR, svc_name), 'w') as f:
         f.write(f"[Unit]\nDescription=Bot {bot_name}\nAfter=network.target\n[Service]\nExecStart=/usr/bin/python3 {file_path}\nWorkingDirectory={os.path.dirname(file_path)}\nRestart=always\nUser=root\nKillSignal=SIGINT\nTimeoutStopSec=5\n[Install]\nWantedBy=multi-user.target\n")
-    
-    # БЕЗОПАСНОСТЬ: Экранирование
     svc_name_safe = shlex.quote(svc_name)
     run_command(f"systemctl daemon-reload && systemctl enable {svc_name_safe} && systemctl start {svc_name_safe}")
     return jsonify({"success": True})
@@ -1101,12 +1029,9 @@ def bot_action():
     action = request.json.get('action')
     is_system = request.json.get('is_system', False)
     
-    if not bot_name or not action:
-        return jsonify({"success": False, "error": "Неверные параметры"})
+    if not bot_name or not action: return jsonify({"success": False, "error": "Неверные параметры"})
 
-    # БЕЗОПАСНОСТЬ: Экранируем переменные для защиты от Command Injection
     bot_name_safe = shlex.quote(bot_name)
-    
     if is_system:
         svc_safe = bot_name_safe
         svc_raw = bot_name 
@@ -1114,17 +1039,14 @@ def bot_action():
         svc_safe = shlex.quote(f"{SERVICE_PREFIX}{bot_name}.service")
         svc_raw = f"{SERVICE_PREFIX}{bot_name}.service"
 
-    if action == "status_only":
-        return jsonify({"success": True, "active": (run_command(f"systemctl is-active {svc_safe}") == "active")})
-        
+    if action == "status_only": return jsonify({"success": True, "active": (run_command(f"systemctl is-active {svc_safe}") == "active")})
     if action == "restart": run_command(f"systemctl restart {svc_safe}")
     elif action == "start": run_command(f"systemctl start {svc_safe}")
     elif action == "stop": run_command(f"systemctl stop {svc_safe}")
     elif action == "delete":
         if is_system: return jsonify({"success": False, "error": "Удаление системных служб запрещено."})
         run_command(f"systemctl stop {svc_safe} && systemctl disable {svc_safe}")
-        try:
-            os.remove(os.path.join(SYSTEMD_DIR, svc_raw))
+        try: os.remove(os.path.join(SYSTEMD_DIR, svc_raw))
         except: pass
         run_command("systemctl daemon-reload")
         return jsonify({"success": True})
@@ -1177,7 +1099,6 @@ def api_system_logs():
     priority = filters.get('priority', 'all')
     search = filters.get('search', '').lower()
     
-    # БЕЗОПАСНОСТЬ: Экранируем количество строк, хотя тут инъекция маловероятна, но для порядка
     lines_safe = shlex.quote(str(int(lines)))
     cmd = f"journalctl -r -n {lines_safe} -o json"
     if priority == 'error': cmd += " -p 0..3"
@@ -1206,21 +1127,6 @@ def api_system_logs():
                 logs.append({"time": date_str, "priority": prio_str, "source": source, "message": msg})
             except: pass
         return jsonify({"success": True, "logs": logs})
-    except Exception as e: return jsonify({"success": False, "error": str(e)})
-
-@app.route('/api/outline/reset', methods=['POST'])
-@login_required
-def reset_outline_stats():
-    container_name = "shadowbox"
-    try:
-        res = subprocess.run(['docker', 'ps', '--format', '{{.Names}}'], capture_output=True, text=True)
-        if 'shadowbox' not in res.stdout:
-            res2 = subprocess.run(['docker', 'ps', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
-            if res2.stdout.strip(): container_name = res2.stdout.strip().split('\n')[0]
-        
-        container_safe = shlex.quote(container_name)
-        subprocess.run(f"docker restart {container_safe}", shell=True)
-        return jsonify({"success": True})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
 
 @app.route('/api/vpn_users', methods=['GET'])
@@ -1296,32 +1202,29 @@ def api_vpn_action():
     service = request.json.get('service')
     action = request.json.get('action') 
     
-    # БЕЗОПАСНОСТЬ: Жесткая проверка разрешенных сервисов и действий
-    if service not in ['xray', '3proxy', 'danted', 'outline', 'mtproto']:
+    if service not in ['xray', '3proxy', 'danted', 'awg', 'mtproto']:
         return jsonify({"success": False, "error": "Неизвестный сервис"})
     if action not in ['start', 'stop', 'restart']:
         return jsonify({"success": False, "error": "Неизвестное действие"})
 
     try:
-        # ДОБАВИЛИ mtproxy сюда
-        if service in ['xray', '3proxy', 'danted', 'mtproto']: 
-            # Маппинг имен сервисов: если пришло mtproto, дергаем mtproxy.service
-            svc_name = "mtproxy.service" if service == "mtproto" else service
-            svc_safe = shlex.quote(svc_name)
+        if service in ['xray', '3proxy', 'danted']: 
+            svc_safe = shlex.quote(service)
             action_safe = shlex.quote(action)
             run_command(f"systemctl {action_safe} {svc_safe}")
             
-        elif service in ['outline']:
-            container = "shadowbox"
-            res = subprocess.run(['docker', 'ps', '-a', '--filter', 'ancestor=quay.io/outline/shadowbox', '--format', '{{.Names}}'], capture_output=True, text=True)
-            if res.stdout.strip(): container = res.stdout.strip().split('\n')[0]
+        elif service == 'awg':
+            wg_action = "up" if action in ["start", "restart"] else "down"
+            run_command(f"wg-quick {wg_action} awg0")
             
-            container_safe = shlex.quote(container)
+        elif service == 'mtproto': 
+            container_safe = shlex.quote("mtprotoproxy-mtprotoproxy-1")
             action_safe = shlex.quote(action)
             run_command(f"docker {action_safe} {container_safe}")
+            
         return jsonify({"success": True})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
 
 if __name__ == '__main__':
-    # БЕЗОПАСНОСТЬ: Выключаем режим Debug для продакшена!
+    # ОПТИМИЗАЦИЯ И БЕЗОПАСНОСТЬ: Флаг debug отключен для Production
     app.run(host='0.0.0.0', port=5000, debug=False)
