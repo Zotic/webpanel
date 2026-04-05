@@ -291,7 +291,8 @@ def get_active_vpn_users():
 
     # 2. Сбор подключений AmneziaWG
     try:
-        res = subprocess.run(['awg', 'show', 'awg0', 'dump'], capture_output=True, text=True)
+        # ИЗМЕНЕНО НА amn0
+        res = subprocess.run(['awg', 'show', 'amn0', 'dump'], capture_output=True, text=True)
         lines = res.stdout.strip().split('\n')
         if len(lines) > 1:
             for line in lines[1:]:
@@ -461,7 +462,8 @@ def analyze_proxy_logs():
 # --- AmneziaWG ---
 def get_awg_status():
     try:
-        res = subprocess.run(['ip', 'link', 'show', 'awg0'], capture_output=True, text=True)
+        # ИЗМЕНЕНО НА amn0
+        res = subprocess.run(['ip', 'link', 'show', 'amn0'], capture_output=True, text=True)
         return "active" if "state UNKNOWN" in res.stdout or "state UP" in res.stdout else "inactive"
     except:
         return "unknown"
@@ -469,7 +471,8 @@ def get_awg_status():
 def get_awg_metrics():
     data = []
     try:
-        res = subprocess.run(['awg', 'show', 'awg0', 'dump'], capture_output=True, text=True)
+        # ИЗМЕНЕНО НА amn0
+        res = subprocess.run(['awg', 'show', 'amn0', 'dump'], capture_output=True, text=True)
         lines = res.stdout.strip().split('\n')
         if not lines or len(lines) <= 1: return []
         
@@ -930,7 +933,8 @@ def vpn_users_page(): return render_template('vpn_users.html')
 # НАСТРОЙКИ AMNEZIA WG (РЕДАКТОР)
 # ========================================
 def get_awg_config_path():
-    paths = ['/etc/amnezia/amneziawg/awg0.conf', '/etc/wireguard/awg0.conf']
+    # ИЗМЕНЕНО НА amn0.conf
+    paths = ['/etc/amnezia/amneziawg/amn0.conf', '/etc/wireguard/amn0.conf']
     for p in paths:
         if os.path.exists(p): return p
     return paths[0]
@@ -954,9 +958,10 @@ def api_save_awg_config():
     if not content: return jsonify({"success": False, "error": "Пустой конфиг"})
     try:
         with open(path, 'w', encoding='utf-8') as f: f.write(content)
-        run_command("wg-quick down awg0")
+        # ИЗМЕНЕНО НА amn0
+        run_command("wg-quick down amn0")
         time.sleep(0.5)
-        run_command("wg-quick up awg0")
+        run_command("wg-quick up amn0")
         return jsonify({"success": True})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
 
@@ -1215,7 +1220,8 @@ def api_vpn_action():
             
         elif service == 'awg':
             wg_action = "up" if action in ["start", "restart"] else "down"
-            run_command(f"wg-quick {wg_action} awg0")
+            # ИЗМЕНЕНО НА amn0
+            run_command(f"wg-quick {wg_action} amn0")
             
         elif service == 'mtproto': 
             container_safe = shlex.quote("mtprotoproxy-mtprotoproxy-1")
