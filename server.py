@@ -1246,6 +1246,160 @@ def api_vpn_action():
         return jsonify({"success": True})
     except Exception as e: return jsonify({"success": False, "error": str(e)})
 
+import shutil
+import zipfile
+from werkzeug.utils import secure_filename
+from flask import send_file, request
+
+# ========================================
+# ZX EXPLORER (ВЕБ-ПРОВОДНИК)
+# ========================================
+
+@app.route('/explorer')
+@login_required
+def explorer_page():
+    return render_template('explorer.html')
+
+@app.route('/api/explorer/list', methods=['POST'])
+@login_required
+def api_explorer_list():
+    target_path = request.json.get('path', '/')
+    if not os.path.exists(target_path) or not os.path.isdir(target_path):
+        target_path = '/'
+
+    items = []
+    try:
+        for entry in os.scandir(target_path):
+            try:
+                stat = entry.stat(follow_symlinks=False)
+                mtime = datetime.fromtimestamp(stat.st_mtime).strftime('%d.%m.%Y %H:%M')
+                items.append({
+                    "name": entry.name,
+                    "path": entry.path,
+                    "is_dir": entry.is_dir(follow_symlinks=False),
+                    "size": stat.st_size if not entry.is_dir(follow_symlinks=False) else 0,
+                    "mtime": mtime
+                })
+            except: pass
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+    # Сортируем: сначала папки, потом файлы, по алфавиту
+    items.sort(key=lambda x: (not x['is_dir'], x['name'].lower()))
+    
+    # Формируем хлебные крошки (Breadcrumbs)
+    parts = target_path.strip('/').split('/')
+    breadcrumbs = [{"name": "Root", "path": "/"}]
+    current = ""
+    if target_path != '/':
+        for part in parts:
+            if part:
+                current += "/" + part
+                breadcrumbs.append({"name": part, "path": current})
+
+    return jsonify({"success": True, "path": target_path, "items": items, "breadcrumbs": breadcrumbs})
+
+@app.route('/api/explorer/operate', methods=['POST'])
+@login_required
+def api_explorer_operate():
+    data = request.json
+    action = data.get('action')
+    paths = data.get('paths', [])
+    dest = data.get('dest', '')
+    new_name = data.get('new_name', '')
+
+    try:
+        if action == 'delete':
+            for p in paths:
+                if os.path.isdir(p): shutil.rmtree(p, ignore_errors=True)
+                else: os.remove(p)
+                
+        elif action == 'create_folder':
+            os.makedirs(os.path.join(dest, new_name), exist_ok=True)
+            
+        elif action == 'create_file':
+            with open(os.path.join(dest, new_name), 'w') as f: pass
+            
+        elif action == 'rename':
+            os.rename(paths[0], os.path.join(os.path.dirname(paths[0]), new_name))
+            
+        elif action == 'copy' or action == 'cut':
+            for p in paths:
+                name = os.path.basename(p)
+                target = os.path.join(dest, name)
+                # Если файл существует, добавляем суффикс
+                if os.path.exists(target):
+                    target = os.path.join(dest, "copy_" + name)
+                
+                if action == 'copy':
+                    if os.path.isdir(p): shutil.copytree(p, target)
+                    else: shutil.copy2(p, target)
+                elif action == 'cut':
+                    shutil.move(p, target)
+                    
+        elif action == 'zip':
+            zip_path = os.path.join(dest, new_name if new_name.endswith('.zip') else new_name + '.zip')
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for p in paths:
+                    if os.path.isdir(p):
+                        for root, dirs, files in os.walk(p):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                arcname = os.path.relpath(file_path, os.path.dirname(p))
+                                zipf.write(file_path, arcname)
+                    else:
+                        zipf.write(p, os.path.basename(p))
+                        
+        elif action == 'unzip':
+            for p in paths:
+                extract_dir = os.path.join(dest, os.path.basename(p).replace('.zip', ''))
+                os.makedirs(extract_dir, exist_ok=True)
+                with zipfile.ZipFile(p, 'r') as zipf:
+                    zipf.extractall(extract_dir)
+
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/explorer/upload', methods=['POST'])
+@login_required
+def api_explorer_upload():
+    dest = request.form.get('dest', '/')
+    if 'files[]' not in request.files:
+        return jsonify({"success": False, "error": "Нет файлов"})
+    
+    files = request.files.getlist('files[]')
+    try:
+        for file in files:
+            if file.filename:
+                # secure_filename удаляет русские буквы, поэтому используем оригинальное имя, но защищаем от ../
+                filename = os.path.basename(file.filename) 
+                file.save(os.path.join(dest, filename))
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/explorer/download', methods=['GET'])
+@login_required
+def api_explorer_download():
+    path = request.args.get('path')
+    if path and os.path.isfile(path):
+        return send_file(path, as_attachment=True)
+    return "Файл не найден", 404
+
+# Улучшенное сохранение текста (Save / Save As)
+@app.route('/api/explorer/save_text', methods=['POST'])
+@login_required
+def api_explorer_save_text():
+    path = request.json.get('path')
+    content = request.json.get('content')
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 if __name__ == '__main__':
     # ОПТИМИЗАЦИЯ И БЕЗОПАСНОСТЬ: Флаг debug отключен для Production
     app.run(host='0.0.0.0', port=5000, debug=False)
