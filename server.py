@@ -1400,6 +1400,70 @@ def api_explorer_save_text():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
+# ========================================
+# СТАТИСТИКА ТРАФИКА СЕРВЕРА (VNSTAT)
+# ========================================
+import shutil
+
+@app.route('/api/network_traffic', methods=['POST'])
+@login_required
+def api_network_traffic():
+    start_date_str = request.json.get('start_date') # YYYY-MM-DD
+    end_date_str = request.json.get('end_date')     # YYYY-MM-DD
+
+    # Проверяем, установлена ли утилита
+    if shutil.which("vnstat") is None:
+        return jsonify({"success": False, "error": "Утилита vnstat не установлена. Выполните 'apt install vnstat' в консоли."})
+
+    iface = get_main_interface()
+
+    try:
+        # Получаем данные за все дни в формате JSON
+        res = subprocess.run(f"vnstat -i {iface} --json", shell=True, capture_output=True, text=True)
+        
+        # Если vnstat только что установлен, ему нужна минута на создание БД
+        if not res.stdout.strip():
+            return jsonify({"success": False, "error": "vnstat собирает первые данные. Подождите пару минут."})
+            
+        data = json.loads(res.stdout)
+
+        iface_data = None
+        for interface in data.get('interfaces', []):
+            if interface.get('name') == iface:
+                iface_data = interface
+                break
+
+        if not iface_data:
+            return jsonify({"success": False, "error": f"Нет данных для интерфейса {iface}"})
+
+        days = iface_data.get('traffic', {}).get('day', [])
+
+        rx_total = 0
+        tx_total = 0
+
+        # Преобразуем строки в объекты дат для сравнения
+        start_dt = datetime.strptime(start_date_str, "%Y-%m-%d").date() if start_date_str else datetime.min.date()
+        end_dt = datetime.strptime(end_date_str, "%Y-%m-%d").date() if end_date_str else datetime.max.date()
+
+        for day in days:
+            d = day.get('date', {})
+            current_dt = datetime(d.get('year'), d.get('month'), d.get('day')).date()
+
+            # Суммируем трафик за те дни, которые попадают в выбранный диапазон
+            if start_dt <= current_dt <= end_dt:
+                rx_total += day.get('rx', 0)
+                tx_total += day.get('tx', 0)
+
+        return jsonify({
+            "success": True,
+            "rx": rx_total,   # Скачано
+            "tx": tx_total,   # Отправлено
+            "total": rx_total + tx_total
+        })
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 if __name__ == '__main__':
     # ОПТИМИЗАЦИЯ И БЕЗОПАСНОСТЬ: Флаг debug отключен для Production
     app.run(host='0.0.0.0', port=5000, debug=False)
