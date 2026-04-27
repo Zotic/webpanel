@@ -106,15 +106,46 @@
 
 <!-- === FAIL2BAN (ЗАЩИТА ОТ АТАК) === -->
 <div class="card border-0 shadow-sm mt-4 mb-4">
-    <div class="card-header bg-white fw-bold py-3 border-bottom-0 d-flex justify-content-between align-items-center">
+    <div class="card-header bg-white fw-bold py-3 border-bottom-0 d-flex justify-content-between align-items-center flex-wrap gap-2">
         <span class="d-flex align-items-center gap-2"><span class="material-symbols-outlined text-danger">security</span> Fail2Ban (Авто-Бан)</span>
-        <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1" onclick="fetchFail2Ban()">
-            <span class="material-symbols-outlined fs-6">refresh</span> Обновить
-        </button>
+        <div class="d-flex gap-2">
+            <!-- НОВАЯ КНОПКА КОНФИГА -->
+            <button class="btn btn-sm btn-outline-dark d-flex align-items-center gap-1" onclick="openF2bConfig()">
+                <span class="material-symbols-outlined fs-6">settings</span> Настройки (Конфиг)
+            </button>
+            <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1" onclick="fetchFail2Ban()">
+                <span class="material-symbols-outlined fs-6">refresh</span> Обновить
+            </button>
+        </div>
     </div>
     <div class="card-body p-0">
         <div id="f2bContent" class="p-4 text-center">
             <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно: Редактор Fail2Ban -->
+<div class="modal fade" id="f2bConfigModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white" style="border-radius: 12px; border: none; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div class="modal-header border-bottom-0">
+                <h5 class="modal-title fw-bold d-flex align-items-center gap-2">
+                    <span class="material-symbols-outlined text-primary">edit_document</span> 
+                    Редактор <span id="f2bConfigPathLabel" class="text-secondary fs-6"></span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-0">
+                <textarea id="f2bConfigContent" class="form-control font-monospace text-info bg-dark" style="height: 500px; border: 1px solid #333; border-radius: 8px; font-size: 0.85rem;" spellcheck="false"></textarea>
+                <small class="text-muted mt-2 d-block">
+                    <span class="text-warning">Внимание:</span> Сохранение автоматически перезапустит службу <code>fail2ban</code>.
+                </small>
+            </div>
+            <div class="modal-footer border-top-0">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="f2bSaveBtn" onclick="saveF2bConfig()">Сохранить и Перезапустить</button>
+            </div>
         </div>
     </div>
 </div>
@@ -504,27 +535,30 @@
                     ipListHtml = '<p class="text-muted small mt-2 mb-0">В данный момент забаненных IP нет.</p>';
                 }
 
+                // ИЗМЕНЕНО: Статистика вынесена на саму кнопку (всегда видна)
                 html += `
                 <div class="accordion-item border-0 border-bottom">
                     <h2 class="accordion-header">
-                        <button class="accordion-button collapsed bg-white text-dark fw-bold shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#jail_${jailName}">
-                            <span class="me-2 text-uppercase">[${jailName}]</span>
-                            <span class="badge ${badgeColor} ms-auto me-2">${stats.banned_currently} в бане</span>
+                        <button class="accordion-button collapsed bg-white text-dark shadow-none d-flex flex-wrap align-items-center" type="button" data-bs-toggle="collapse" data-bs-target="#jail_${jailName}">
+                            <span class="me-3 fw-bold text-uppercase">[${jailName}]</span>
+                            
+                            <!-- Статистика, видимая всегда -->
+                            <div class="d-flex gap-3 text-muted small me-auto" style="font-size: 0.8rem;">
+                                <span>Попыток: <b class="text-dark">${stats.failed_total}</b></span>
+                                <span>Забанено за всё время: <b class="text-dark">${stats.banned_total}</b></span>
+                            </div>
+
+                            <span class="badge ${badgeColor} ms-2">${stats.banned_currently} в бане</span>
                         </button>
                     </h2>
                     <div id="jail_${jailName}" class="accordion-collapse collapse" data-bs-parent="#f2bAccordion">
                         <div class="accordion-body bg-light">
-                            <div class="d-flex gap-4 text-muted small fw-bold">
-                                <span>Попыток взлома: <span class="text-dark">${stats.failed_total}</span></span>
-                                <span>Всего забанено за всё время: <span class="text-dark">${stats.banned_total}</span></span>
-                            </div>
-                            
                             <!-- Ручной бан -->
-                            <div class="input-group input-group-sm mt-3" style="max-width: 300px;">
+                            <div class="input-group input-group-sm mb-3" style="max-width: 300px;">
                                 <input type="text" id="manualBan_${jailName}" class="form-control font-monospace" placeholder="Вписать IP вручную...">
                                 <button class="btn btn-outline-danger" type="button" onclick="manualBan('${jailName}')">Забанить</button>
                             </div>
-
+                            <!-- Список IP -->
                             ${ipListHtml}
                         </div>
                     </div>
@@ -535,6 +569,95 @@
 
         } catch (e) {
             contentDiv.innerHTML = '<span class="text-danger">Ошибка сети.</span>';
+        }
+    }
+
+    async function unbanIp(ip, jail) {
+        if (!confirm(`Точно разбанить IP ${ip}?`)) return;
+        try {
+            const res = await fetch('/api/fail2ban/unban', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: ip, jail: jail })
+            });
+            const data = await res.json();
+            if (data.success) fetchFail2Ban();
+            else alert(data.error);
+        } catch(e) {}
+    }
+
+    async function manualBan(jailName) {
+        const inputEl = document.getElementById(`manualBan_${jailName}`);
+        if (!inputEl) return;
+        const ip = inputEl.value.trim();
+        if (!ip) return;
+        if (!confirm(`Заблокировать IP ${ip} в фаерволе?`)) return;
+        try {
+            const res = await fetch('/api/fail2ban/ban', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: ip, jail: jailName })
+            });
+            const data = await res.json();
+            if (data.success) fetchFail2Ban();
+            else alert(data.error);
+        } catch(e) {}
+    }
+
+    // === РЕДАКТОР КОНФИГА FAIL2BAN ===
+    let f2bModal = null;
+    document.addEventListener("DOMContentLoaded", () => {
+        const el = document.getElementById('f2bConfigModal');
+        if (el) f2bModal = new bootstrap.Modal(el);
+        fetchFail2Ban(); // Автозагрузка
+    });
+
+    async function openF2bConfig() {
+        document.getElementById('f2bConfigContent').value = "Загрузка конфига...";
+        document.getElementById('f2bConfigPathLabel').innerText = "";
+        f2bModal.show();
+
+        try {
+            const res = await fetch('/api/fail2ban/get_config');
+            if (res.status === 401) { location.reload(); return; }
+            const data = await res.json();
+
+            if (data.success) {
+                document.getElementById('f2bConfigContent').value = data.content;
+                document.getElementById('f2bConfigPathLabel').innerText = data.path;
+            } else {
+                document.getElementById('f2bConfigContent').value = "Ошибка: " + data.error;
+            }
+        } catch (e) {
+            document.getElementById('f2bConfigContent').value = "Ошибка сети.";
+        }
+    }
+
+    async function saveF2bConfig() {
+        const content = document.getElementById('f2bConfigContent').value;
+        const btn = document.getElementById('f2bSaveBtn');
+        
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Применение...';
+
+        try {
+            const res = await fetch('/api/fail2ban/save_config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: content })
+            });
+            if (res.status === 401) { location.reload(); return; }
+            const data = await res.json();
+
+            if (data.success) {
+                f2bModal.hide();
+                fetchFail2Ban(); // Обновляем статистику
+            } else {
+                alert('Ошибка сохранения: ' + data.error);
+            }
+        } catch (e) {
+            alert('Ошибка сети.');
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "Сохранить и Перезапустить";
         }
     }
 
