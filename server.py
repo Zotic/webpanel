@@ -1465,7 +1465,7 @@ def api_network_traffic():
         return jsonify({"success": False, "error": str(e)})
 
 # ========================================
-# FAIL2BAN (ЗАЩИТА ОТ БРУТФОРСА)
+# FAIL2BAN (ЗАЩИТА ОТ БРУТФОРСА И РЕДАКТОР)
 # ========================================
 import shutil
 
@@ -1474,12 +1474,10 @@ def get_fail2ban_status():
         return {"status": "not_installed", "jails": {}}
     
     try:
-        # Проверяем, запущен ли демон
         res = run_command("fail2ban-client ping")
         if "Server replied: pong" not in res:
             return {"status": "inactive", "jails": {}}
 
-        # Получаем список активных "тюрем" (jails)
         jails_raw = run_command("fail2ban-client status")
         match = re.search(r'Jail list:\s+(.*)', jails_raw)
         if not match:
@@ -1488,9 +1486,10 @@ def get_fail2ban_status():
         jail_list = [j.strip() for j in match.group(1).split(',')]
         jails_info = {}
 
-        # Получаем статистику по каждой тюрьме
         for jail in jail_list:
-            info = run_command(f"fail2ban-client status {shlex.quote(jail)}")
+            # Безопасное экранирование имени тюрьмы
+            jail_safe = shlex.quote(jail)
+            info = run_command(f"fail2ban-client status {jail_safe}")
             
             failed_total = 0
             banned_currently = 0
@@ -1516,8 +1515,10 @@ def get_fail2ban_status():
             }
             
         return {"status": "active", "jails": jails_info}
-    except:
+    except Exception as e:
+        print(f"Fail2ban Error: {e}")
         return {"status": "error", "jails": {}}
+
 
 @app.route('/api/fail2ban/get_stats', methods=['GET'])
 @login_required
@@ -1536,7 +1537,6 @@ def api_f2b_unban():
         jail_safe = shlex.quote(jail)
         res = run_command(f"fail2ban-client set {jail_safe} unbanip {ip_safe}")
         
-        # fail2ban-client возвращает '1', если разбан успешен, и '0', если IP не было в бане
         if res.strip() == "1":
             return jsonify({"success": True})
         else:
@@ -1557,6 +1557,50 @@ def api_f2b_ban():
         run_command(f"fail2ban-client set {jail_safe} banip {ip_safe}")
         return jsonify({"success": True})
     except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+# --- РЕДАКТОР КОНФИГА FAIL2BAN ---
+def get_f2b_config_path():
+    # Fail2ban использует .local для пользовательских настроек, 
+    # но если его еще нет, показываем базовый .conf
+    if os.path.exists('/etc/fail2ban/jail.local'):
+        return '/etc/fail2ban/jail.local'
+    elif os.path.exists('/etc/fail2ban/jail.conf'):
+        return '/etc/fail2ban/jail.conf'
+    return None
+
+@app.route('/api/fail2ban/get_config', methods=['GET'])
+@login_required
+def api_get_f2b_config():
+    path = get_f2b_config_path()
+    if not path:
+        # Теперь скрипт не упадет, а честно ответит браузеру
+        return jsonify({"success": False, "error": "Файлы jail.local или jail.conf не найдены в /etc/fail2ban/"})
+        
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return jsonify({"success": True, "content": content, "path": path})
+    except Exception as e: 
+        # Если нет прав на чтение файла
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/fail2ban/save_config', methods=['POST'])
+@login_required
+def api_save_f2b_config():
+    content = request.json.get('content')
+    if not content: 
+        return jsonify({"success": False, "error": "Пустой конфиг"})
+        
+    # Всегда сохраняем в jail.local, чтобы не затирать системный jail.conf при обновлениях
+    path = '/etc/fail2ban/jail.local' 
+    
+    try:
+        with open(path, 'w', encoding='utf-8') as f: 
+            f.write(content)
+        run_command("systemctl restart fail2ban")
+        return jsonify({"success": True})
+    except Exception as e: 
         return jsonify({"success": False, "error": str(e)})
 
 if __name__ == '__main__':
