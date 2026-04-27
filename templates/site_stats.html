@@ -454,5 +454,120 @@
         setTrafficPeriod('month');
     });
 
+// === FAIL2BAN ЛОГИКА ===
+    async function fetchFail2Ban() {
+        const contentDiv = document.getElementById('f2bContent');
+        contentDiv.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
+
+        try {
+            const res = await fetch('/api/fail2ban/get_stats');
+            const result = await res.json();
+
+            if (!result.success) {
+                contentDiv.innerHTML = `<span class="text-danger">Ошибка: ${result.error}</span>`;
+                return;
+            }
+
+            const d = result.data;
+            if (d.status === "not_installed") {
+                contentDiv.innerHTML = '<span class="text-muted">Fail2Ban не установлен. Введите в SSH: <code>apt install fail2ban</code></span>';
+                return;
+            }
+            if (d.status === "inactive") {
+                contentDiv.innerHTML = '<span class="text-warning fw-bold">Fail2Ban выключен. Введите: <code>systemctl start fail2ban</code></span>';
+                return;
+            }
+
+            const jails = d.jails;
+            if (Object.keys(jails).length === 0) {
+                contentDiv.innerHTML = '<span class="text-muted">Служба работает, но нет активных фильтров (jails).</span>';
+                return;
+            }
+
+            let html = '<div class="accordion" id="f2bAccordion">';
+            
+            for (const [jailName, stats] of Object.entries(jails)) {
+                let badgeColor = stats.banned_currently > 0 ? "bg-danger" : "bg-success";
+                
+                let ipListHtml = '';
+                if (stats.banned_ips.length > 0) {
+                    ipListHtml = '<div class="d-flex flex-wrap gap-2 mt-3">';
+                    stats.banned_ips.forEach(ip => {
+                        ipListHtml += `
+                            <div class="badge bg-dark d-flex align-items-center gap-2 p-2 fs-6">
+                                <span class="font-monospace">${ip}</span>
+                                <span class="material-symbols-outlined text-danger cursor-pointer" style="font-size: 18px;" onclick="unbanIp('${ip}', '${jailName}')" title="Разбанить">close</span>
+                            </div>`;
+                    });
+                    ipListHtml += '</div>';
+                } else {
+                    ipListHtml = '<p class="text-muted small mt-2 mb-0">В данный момент забаненных IP нет.</p>';
+                }
+
+                html += `
+                <div class="accordion-item border-0 border-bottom">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed bg-white text-dark fw-bold shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#jail_${jailName}">
+                            <span class="me-2 text-uppercase">[${jailName}]</span>
+                            <span class="badge ${badgeColor} ms-auto me-2">${stats.banned_currently} в бане</span>
+                        </button>
+                    </h2>
+                    <div id="jail_${jailName}" class="accordion-collapse collapse" data-bs-parent="#f2bAccordion">
+                        <div class="accordion-body bg-light">
+                            <div class="d-flex gap-4 text-muted small fw-bold">
+                                <span>Попыток взлома: <span class="text-dark">${stats.failed_total}</span></span>
+                                <span>Всего забанено за всё время: <span class="text-dark">${stats.banned_total}</span></span>
+                            </div>
+                            
+                            <!-- Ручной бан -->
+                            <div class="input-group input-group-sm mt-3" style="max-width: 300px;">
+                                <input type="text" id="manualBan_${jailName}" class="form-control font-monospace" placeholder="Вписать IP вручную...">
+                                <button class="btn btn-outline-danger" type="button" onclick="manualBan('${jailName}')">Забанить</button>
+                            </div>
+
+                            ${ipListHtml}
+                        </div>
+                    </div>
+                </div>`;
+            }
+            html += '</div>';
+            contentDiv.innerHTML = html;
+
+        } catch (e) {
+            contentDiv.innerHTML = '<span class="text-danger">Ошибка сети.</span>';
+        }
+    }
+
+    async function unbanIp(ip, jail) {
+        if (!confirm(`Точно разбанить IP ${ip}?`)) return;
+        try {
+            const res = await fetch('/api/fail2ban/unban', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: ip, jail: jail })
+            });
+            const data = await res.json();
+            if (data.success) fetchFail2Ban();
+            else alert(data.error);
+        } catch(e) {}
+    }
+
+    async function manualBan(jail) {
+        const ip = document.getElementById(`manualBan_${jailName}`).value.trim();
+        if (!ip) return;
+        if (!confirm(`Заблокировать IP ${ip} в фаерволе?`)) return;
+        try {
+            const res = await fetch('/api/fail2ban/ban', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip: ip, jail: jail })
+            });
+            const data = await res.json();
+            if (data.success) fetchFail2Ban();
+            else alert(data.error);
+        } catch(e) {}
+    }
+
+    // Автозагрузка при открытии страницы
+    document.addEventListener("DOMContentLoaded", fetchFail2Ban);
+
 </script>
 {% endblock %}
