@@ -457,89 +457,109 @@
 // === FAIL2BAN ЛОГИКА ===
     async function fetchFail2Ban() {
         const contentDiv = document.getElementById('f2bContent');
-        contentDiv.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
+        // Убираем p-4 text-center у родителя, чтобы контент занимал всю ширину
+        contentDiv.parentElement.classList.remove('p-4', 'text-center'); 
+        contentDiv.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-danger" role="status"></div></div>';
 
         try {
             const res = await fetch('/api/fail2ban/get_stats');
             const result = await res.json();
 
             if (!result.success) {
-                contentDiv.innerHTML = `<span class="text-danger">Ошибка: ${result.error}</span>`;
+                contentDiv.innerHTML = `<div class="p-4 text-center text-danger">Ошибка: ${result.error}</div>`;
                 return;
             }
 
             const d = result.data;
             if (d.status === "not_installed") {
-                contentDiv.innerHTML = '<span class="text-muted">Fail2Ban не установлен. Введите в SSH: <code>apt install fail2ban</code></span>';
+                contentDiv.innerHTML = '<div class="p-4 text-center text-muted">Fail2Ban не установлен. Введите в SSH: <code>apt install fail2ban</code></div>';
                 return;
             }
             if (d.status === "inactive") {
-                contentDiv.innerHTML = '<span class="text-warning fw-bold">Fail2Ban выключен. Введите: <code>systemctl start fail2ban</code></span>';
+                contentDiv.innerHTML = '<div class="p-4 text-center text-warning fw-bold">Fail2Ban выключен. Введите: <code>systemctl start fail2ban</code></div>';
                 return;
             }
 
             const jails = d.jails;
             if (Object.keys(jails).length === 0) {
-                contentDiv.innerHTML = '<span class="text-muted">Служба работает, но нет активных фильтров (jails).</span>';
+                contentDiv.innerHTML = '<div class="p-4 text-center text-muted">Служба работает, но активных фильтров (jails) пока нет.</div>';
                 return;
             }
 
-            let html = '<div class="accordion" id="f2bAccordion">';
+            let html = '<div class="list-group list-group-flush">';
             
             for (const [jailName, stats] of Object.entries(jails)) {
-                let badgeColor = stats.banned_currently > 0 ? "bg-danger" : "bg-success";
+                let statusBadge = stats.banned_currently > 0 
+                    ? `<span class="badge bg-danger rounded-pill px-3 py-2 shadow-sm">${stats.banned_currently} в бане</span>` 
+                    : `<span class="badge bg-success rounded-pill px-3 py-2 shadow-sm">Чисто</span>`;
                 
                 let ipListHtml = '';
                 if (stats.banned_ips.length > 0) {
-                    ipListHtml = '<div class="d-flex flex-wrap gap-2 mt-3">';
+                    ipListHtml = '<div class="d-flex flex-wrap gap-2 mt-3 p-3 bg-light rounded border">';
                     stats.banned_ips.forEach(ip => {
                         ipListHtml += `
-                            <div class="badge bg-dark d-flex align-items-center gap-2 p-2 fs-6">
+                            <div class="badge bg-white text-dark border border-danger d-flex align-items-center gap-1 p-2 fs-6 shadow-sm">
+                                <span class="material-symbols-outlined text-danger" style="font-size: 16px;">block</span>
                                 <span class="font-monospace">${ip}</span>
-                                <span class="material-symbols-outlined text-danger cursor-pointer" style="font-size: 18px;" onclick="unbanIp('${ip}', '${jailName}')" title="Разбанить">close</span>
+                                <span class="material-symbols-outlined text-secondary ms-1 cursor-pointer hover-danger" 
+                                      style="font-size: 18px; transition: color 0.2s;" 
+                                      onmouseover="this.classList.replace('text-secondary', 'text-danger')"
+                                      onmouseout="this.classList.replace('text-danger', 'text-secondary')"
+                                      onclick="unbanIp('${ip}', '${jailName}')" title="Разбанить IP">close</span>
                             </div>`;
                     });
                     ipListHtml += '</div>';
                 } else {
-                    ipListHtml = '<p class="text-muted small mt-2 mb-0">В данный момент забаненных IP нет.</p>';
+                    ipListHtml = '<div class="alert alert-light border mt-3 mb-0 text-center text-muted small">В данный момент забаненных IP нет.</div>';
                 }
 
                 html += `
-                <div class="accordion-item border-0 border-bottom">
-                    <h2 class="accordion-header">
-                        <button class="accordion-button collapsed bg-white text-dark fw-bold shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#jail_${jailName}">
-                            <span class="me-2 text-uppercase">[${jailName}]</span>
-                            <span class="badge ${badgeColor} ms-auto me-2">${stats.banned_currently} в бане</span>
-                        </button>
-                    </h2>
-                    <div id="jail_${jailName}" class="accordion-collapse collapse" data-bs-parent="#f2bAccordion">
-                        <div class="accordion-body bg-light">
-                            <div class="d-flex gap-4 text-muted small fw-bold">
-                                <span>Попыток взлома: <span class="text-dark">${stats.failed_total}</span></span>
-                                <span>Всего забанено за всё время: <span class="text-dark">${stats.banned_total}</span></span>
+                <div class="list-group-item p-4">
+                    <!-- Заголовок Jail и общая статистика (Всегда на виду) -->
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <span class="material-symbols-outlined text-secondary fs-2">gavel</span>
+                            <div>
+                                <h5 class="mb-0 fw-bold text-uppercase text-dark">${jailName}</h5>
+                                <div class="d-flex gap-3 mt-1 small text-muted">
+                                    <span title="Сколько раз боты пытались подобрать пароль">
+                                        <span class="material-symbols-outlined align-middle text-warning" style="font-size: 16px;">warning</span> 
+                                        Попыток взлома: <strong class="text-dark">${stats.failed_total}</strong>
+                                    </span>
+                                    <span title="Сколько всего ботов было забанено за время работы">
+                                        <span class="material-symbols-outlined align-middle text-danger" style="font-size: 16px;">policy</span> 
+                                        Всего забанено: <strong class="text-dark">${stats.banned_total}</strong>
+                                    </span>
+                                </div>
                             </div>
-                            
-                            <!-- Ручной бан -->
-                            <div class="input-group input-group-sm mt-3" style="max-width: 300px;">
-                                <input type="text" id="manualBan_${jailName}" class="form-control font-monospace" placeholder="Вписать IP вручную...">
-                                <button class="btn btn-outline-danger" type="button" onclick="manualBan('${jailName}')">Забанить</button>
+                        </div>
+                        <div class="d-flex align-items-center gap-3">
+                            <!-- Форма ручного бана -->
+                            <div class="input-group input-group-sm shadow-sm" style="max-width: 250px;">
+                                <input type="text" id="manualBan_${jailName}" class="form-control font-monospace" placeholder="Вписать IP в бан...">
+                                <button class="btn btn-outline-danger d-flex align-items-center" type="button" onclick="manualBan('${jailName}')" title="Заблокировать вручную">
+                                    <span class="material-symbols-outlined fs-6">add_moderator</span>
+                                </button>
                             </div>
-
-                            ${ipListHtml}
+                            ${statusBadge}
                         </div>
                     </div>
+                    
+                    <!-- Список текущих банов -->
+                    ${ipListHtml}
                 </div>`;
             }
             html += '</div>';
             contentDiv.innerHTML = html;
 
         } catch (e) {
+            contentDiv.parentElement.classList.add('p-4', 'text-center');
             contentDiv.innerHTML = '<span class="text-danger">Ошибка сети.</span>';
         }
     }
 
     async function unbanIp(ip, jail) {
-        if (!confirm(`Точно разбанить IP ${ip}?`)) return;
+        if (!confirm(`Вы уверены, что хотите разблокировать IP: ${ip}?`)) return;
         try {
             const res = await fetch('/api/fail2ban/unban', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -548,13 +568,13 @@
             const data = await res.json();
             if (data.success) fetchFail2Ban();
             else alert(data.error);
-        } catch(e) {}
+        } catch(e) { alert("Ошибка сети"); }
     }
 
     async function manualBan(jail) {
-        const ip = document.getElementById(`manualBan_${jailName}`).value.trim();
+        const ip = document.getElementById(`manualBan_${jail}`).value.trim();
         if (!ip) return;
-        if (!confirm(`Заблокировать IP ${ip} в фаерволе?`)) return;
+        if (!confirm(`Заблокировать IP ${ip} на уровне фаервола?`)) return;
         try {
             const res = await fetch('/api/fail2ban/ban', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -563,7 +583,7 @@
             const data = await res.json();
             if (data.success) fetchFail2Ban();
             else alert(data.error);
-        } catch(e) {}
+        } catch(e) { alert("Ошибка сети"); }
     }
 
     // Автозагрузка при открытии страницы
