@@ -1464,6 +1464,101 @@ def api_network_traffic():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
+# ========================================
+# FAIL2BAN (ЗАЩИТА ОТ БРУТФОРСА)
+# ========================================
+import shutil
+
+def get_fail2ban_status():
+    if shutil.which("fail2ban-client") is None:
+        return {"status": "not_installed", "jails": {}}
+    
+    try:
+        # Проверяем, запущен ли демон
+        res = run_command("fail2ban-client ping")
+        if "Server replied: pong" not in res:
+            return {"status": "inactive", "jails": {}}
+
+        # Получаем список активных "тюрем" (jails)
+        jails_raw = run_command("fail2ban-client status")
+        match = re.search(r'Jail list:\s+(.*)', jails_raw)
+        if not match:
+            return {"status": "active", "jails": {}}
+            
+        jail_list = [j.strip() for j in match.group(1).split(',')]
+        jails_info = {}
+
+        # Получаем статистику по каждой тюрьме
+        for jail in jail_list:
+            info = run_command(f"fail2ban-client status {shlex.quote(jail)}")
+            
+            failed_total = 0
+            banned_currently = 0
+            banned_total = 0
+            banned_ips = []
+
+            m_fail = re.search(r'Total failed:\s+(\d+)', info)
+            m_banned_curr = re.search(r'Currently banned:\s+(\d+)', info)
+            m_banned_tot = re.search(r'Total banned:\s+(\d+)', info)
+            m_ips = re.search(r'Banned IP list:\s+(.*)', info)
+
+            if m_fail: failed_total = int(m_fail.group(1))
+            if m_banned_curr: banned_currently = int(m_banned_curr.group(1))
+            if m_banned_tot: banned_total = int(m_banned_tot.group(1))
+            if m_ips and m_ips.group(1):
+                banned_ips = [ip.strip() for ip in m_ips.group(1).split() if ip.strip()]
+
+            jails_info[jail] = {
+                "failed_total": failed_total,
+                "banned_currently": banned_currently,
+                "banned_total": banned_total,
+                "banned_ips": banned_ips
+            }
+            
+        return {"status": "active", "jails": jails_info}
+    except:
+        return {"status": "error", "jails": {}}
+
+@app.route('/api/fail2ban/get_stats', methods=['GET'])
+@login_required
+def api_f2b_stats():
+    return jsonify({"success": True, "data": get_fail2ban_status()})
+
+@app.route('/api/fail2ban/unban', methods=['POST'])
+@login_required
+def api_f2b_unban():
+    ip = request.json.get('ip')
+    jail = request.json.get('jail')
+    if not ip or not jail: return jsonify({"success": False, "error": "Нет данных"})
+    
+    try:
+        ip_safe = shlex.quote(ip)
+        jail_safe = shlex.quote(jail)
+        res = run_command(f"fail2ban-client set {jail_safe} unbanip {ip_safe}")
+        
+        # fail2ban-client возвращает '1', если разбан успешен, и '0', если IP не было в бане
+        if res.strip() == "1":
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": f"IP {ip} не найден в тюрьме {jail}."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/fail2ban/ban', methods=['POST'])
+@login_required
+def api_f2b_ban():
+    ip = request.json.get('ip')
+    jail = request.json.get('jail')
+    if not ip or not jail: return jsonify({"success": False, "error": "Нет данных"})
+    
+    try:
+        ip_safe = shlex.quote(ip)
+        jail_safe = shlex.quote(jail)
+        run_command(f"fail2ban-client set {jail_safe} banip {ip_safe}")
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 if __name__ == '__main__':
     # ОПТИМИЗАЦИЯ И БЕЗОПАСНОСТЬ: Флаг debug отключен для Production
     app.run(host='0.0.0.0', port=5000, debug=False)
