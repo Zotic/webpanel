@@ -104,6 +104,21 @@
     </div>
 </div>
 
+<!-- === FAIL2BAN (ЗАЩИТА ОТ АТАК) === -->
+<div class="card border-0 shadow-sm mt-4 mb-4">
+    <div class="card-header bg-white fw-bold py-3 border-bottom-0 d-flex justify-content-between align-items-center">
+        <span class="d-flex align-items-center gap-2"><span class="material-symbols-outlined text-danger">security</span> Fail2Ban (Авто-Бан)</span>
+        <button class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1" onclick="fetchFail2Ban()">
+            <span class="material-symbols-outlined fs-6">refresh</span> Обновить
+        </button>
+    </div>
+    <div class="card-body p-0">
+        <div id="f2bContent" class="p-4 text-center">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    </div>
+</div>
+
 <!-- Улучшенный Стресс-тест (SNI / TLS Flood) -->
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-header bg-white fw-bold py-3 border-bottom-0 d-flex justify-content-between align-items-center">
