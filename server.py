@@ -13,6 +13,20 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 
 app = Flask(__name__)
 
+# --- НОВЫЙ БЛОК: ПЕРЕХВАТ ПОДДОМЕНОВ ---
+@app.before_request
+def check_subdomains():
+    host = request.host.lower()
+    
+    # Если зашли по поддоменам, показываем заглушку
+    if host.startswith('3x.zxapps.co.uk') or host.startswith('info.zxapps.co.uk'):
+        # Вытаскиваем имя поддомена для красоты (3x или info)
+        subdomain = host.split('.')[0].upper()
+        # Игнорируем запросы к статике (css, картинки), чтобы стили подгрузились
+        if not request.path.startswith('/static/'):
+            return render_template('stub.html', subdomain=subdomain)
+# ----------------------------------------
+
 # Безопасный ключ сессий
 app.secret_key = os.getenv('PANEL_SECRET_KEY', os.urandom(24)) 
 ADMIN_USERNAME = os.getenv('PANEL_ADMIN_USER', 'admin')
