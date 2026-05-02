@@ -1287,6 +1287,29 @@ from flask import send_file, request
 # ========================================
 # ZX EXPLORER (ВЕБ-ПРОВОДНИК)
 # ========================================
+EXPLORER_BOOKMARKS_FILE = "explorer_bookmarks.json"
+
+def get_explorer_bookmarks():
+    if os.path.exists(EXPLORER_BOOKMARKS_FILE):
+        try:
+            with open(EXPLORER_BOOKMARKS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except: pass
+    return []
+
+@app.route('/api/explorer/bookmarks', methods=['GET', 'POST'])
+@login_required
+def api_explorer_bookmarks():
+    if request.method == 'POST':
+        bookmarks = request.json.get('bookmarks', [])
+        try:
+            with open(EXPLORER_BOOKMARKS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(bookmarks, f)
+            return jsonify({"success": True})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)})
+    else:
+        return jsonify({"success": True, "bookmarks": get_explorer_bookmarks()})
 
 @app.route('/explorer')
 @login_required

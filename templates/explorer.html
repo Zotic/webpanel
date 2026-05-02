@@ -17,9 +17,9 @@
         <div class="d-flex align-items-center flex-grow-1 position-relative" style="min-width: 250px;">
             <!-- Хлебные крошки (по умолчанию видимы) -->
             <div id="breadcrumbsWrapper" class="d-flex align-items-center bg-light border px-3 rounded w-100 cursor-pointer" 
-                 style="height: 31px; overflow-x: auto; white-space: nowrap; font-family: monospace; font-size: 0.9rem;"
+                 style="height: 31px; overflow-x: auto; white-space: nowrap; font-family: monospace; font-size: 0.95rem;"
                  ondblclick="togglePathEditor(true)" title="Двойной клик для ввода пути">
-                <div id="breadcrumbs" class="d-flex align-items-center w-100">/</div>
+                <div id="breadcrumbs" class="d-flex align-items-center w-100"></div>
             </div>
             
             <!-- Поле ручного ввода пути (скрыто) -->
@@ -47,12 +47,17 @@
             <button class="btn btn-sm btn-outline-warning d-flex align-items-center gap-1" type="button" data-bs-toggle="dropdown" title="Закладки">
                 <span class="material-symbols-outlined fs-6">star</span>
             </button>
-            <ul class="dropdown-menu shadow" id="bookmarksMenu" style="width: 250px;">
-                <li><a class="dropdown-item d-flex align-items-center gap-2 fw-bold text-success" href="#" onclick="addBookmark()"><span class="material-symbols-outlined fs-6">star_add</span> Добавить текущую папку</a></li>
+            <ul class="dropdown-menu shadow" id="bookmarksMenu" style="width: 300px;">
+                <li>
+                    <a class="dropdown-item d-flex align-items-center gap-2 fw-bold text-success py-2" href="#" onclick="addBookmark()">
+                        <!-- Исправлена иконка, чтобы не было артефактов -->
+                        <span class="material-symbols-outlined fs-5">bookmark_add</span> Добавить текущую папку
+                    </a>
+                </li>
                 <li><hr class="dropdown-divider"></li>
                 <div id="bookmarksList">
                     <!-- Сюда JS загрузит закладки -->
-                    <li><span class="dropdown-item-text text-muted small text-center d-block">Нет закладок</span></li>
+                    <li><span class="dropdown-item-text text-muted small text-center d-block py-2">Загрузка...</span></li>
                 </div>
             </ul>
         </div>
@@ -131,12 +136,14 @@
 let currentPath = '/';
 let clipboard = { action: null, paths: [] };
 let textEditorModal = null;
-let bookmarks = JSON.parse(localStorage.getItem('zx_explorer_bookmarks')) || [];
+let serverBookmarks = []; // Закладки теперь хранятся на сервере
 
 document.addEventListener('DOMContentLoaded', () => {
     const modalEl = document.getElementById('textEditorModal');
     if (modalEl) textEditorModal = new bootstrap.Modal(modalEl);
-    renderBookmarks(); // Загружаем закладки
+    
+    // Сначала загружаем закладки с сервера
+    loadBookmarksFromServer();
     loadPath('/');
 });
 
@@ -176,46 +183,65 @@ function navigateToManualPath() {
     loadPath(newPath);
 }
 
-// === УПРАВЛЕНИЕ ЗАКЛАДКАМИ ===
+// === УПРАВЛЕНИЕ ЗАКЛАДКАМИ (СЕРВЕР) ===
+async function loadBookmarksFromServer() {
+    try {
+        const res = await fetch('/api/explorer/bookmarks');
+        const data = await res.json();
+        if (data.success) {
+            serverBookmarks = data.bookmarks;
+            renderBookmarks();
+        }
+    } catch (e) { console.error("Ошибка загрузки закладок"); }
+}
+
+async function saveBookmarksToServer() {
+    try {
+        await fetch('/api/explorer/bookmarks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bookmarks: serverBookmarks })
+        });
+    } catch (e) { console.error("Ошибка сохранения закладок"); }
+}
+
 function renderBookmarks() {
     const list = document.getElementById('bookmarksList');
     list.innerHTML = '';
     
-    if (bookmarks.length === 0) {
-        list.innerHTML = '<li><span class="dropdown-item-text text-muted small text-center d-block">Нет закладок</span></li>';
+    if (serverBookmarks.length === 0) {
+        list.innerHTML = '<li><span class="dropdown-item-text text-muted small text-center d-block py-2">Нет закладок</span></li>';
         return;
     }
 
-    bookmarks.forEach((bm, index) => {
+    serverBookmarks.forEach((bm, index) => {
         const li = document.createElement('li');
-        li.className = 'd-flex align-items-center justify-content-between px-2 py-1 dropdown-item';
+        li.className = 'd-flex align-items-center justify-content-between px-3 py-2 dropdown-item';
         
         li.innerHTML = `
-            <div class="d-flex align-items-center gap-2 cursor-pointer text-truncate" onclick="loadPath('${bm}')" style="max-width: 180px;" title="${bm}">
-                <span class="material-symbols-outlined text-warning" style="font-size: 16px;">folder_special</span>
+            <div class="d-flex align-items-center gap-2 cursor-pointer text-truncate" onclick="loadPath('${bm}')" style="max-width: 230px;" title="${bm}">
+                <span class="material-symbols-outlined text-warning" style="font-size: 18px;">folder_special</span>
                 <span class="font-monospace small">${bm}</span>
             </div>
-            <span class="material-symbols-outlined text-danger cursor-pointer ms-2" style="font-size: 16px;" onclick="removeBookmark(${index})" title="Удалить закладку">close</span>
+            <span class="material-symbols-outlined text-danger cursor-pointer ms-2" style="font-size: 18px;" onclick="removeBookmark(${index}, event)" title="Удалить">close</span>
         `;
         list.appendChild(li);
     });
 }
 
 function addBookmark() {
-    if (!bookmarks.includes(currentPath)) {
-        bookmarks.push(currentPath);
-        localStorage.setItem('zx_explorer_bookmarks', JSON.stringify(bookmarks));
+    if (!serverBookmarks.includes(currentPath)) {
+        serverBookmarks.push(currentPath);
         renderBookmarks();
+        saveBookmarksToServer();
     }
 }
 
-function removeBookmark(index) {
-    bookmarks.splice(index, 1);
-    localStorage.setItem('zx_explorer_bookmarks', JSON.stringify(bookmarks));
+function removeBookmark(index, event) {
+    serverBookmarks.splice(index, 1);
     renderBookmarks();
-    
-    // Предотвращаем закрытие меню Dropdown при клике на крестик
-    event.stopPropagation();
+    saveBookmarksToServer();
+    if (event) event.stopPropagation(); // Чтобы меню не закрылось
 }
 
 // Загрузка папки
@@ -243,9 +269,8 @@ async function loadPath(path) {
             updateSelectionState();
         } else { 
             tbody.innerHTML = `<tr><td colspan="5" class="text-center py-5 text-danger fw-bold">Ошибка: ${data.error}</td></tr>`;
-            // Если путь ошибочный, возвращаем хлебные крошки в рабочее состояние на корень
             currentPath = '/';
-            renderBreadcrumbs([{name: "/", path: "/"}]);
+            renderBreadcrumbs([{name: "", path: "/"}]);
         }
     } catch (e) { 
         tbody.innerHTML = `<tr><td colspan="5" class="text-center py-5 text-danger fw-bold">Сбой сети или сервер не отвечает.</td></tr>`;
@@ -259,19 +284,32 @@ function goUp() {
     }
 }
 
+// === ИДЕАЛЬНЫЕ ХЛЕБНЫЕ КРОШКИ ===
 function renderBreadcrumbs(crumbs) {
     const bc = document.getElementById('breadcrumbs');
     bc.innerHTML = '';
+    
     crumbs.forEach((crumb, idx) => {
         let span = document.createElement('span');
-        span.className = 'cursor-pointer text-primary text-decoration-underline mx-1';
+        span.className = 'cursor-pointer text-primary fw-bold mx-1 px-1 rounded';
         
-        // Заменяем "Root" на слэш
-        span.innerText = crumb.name === 'Root' ? '/' : crumb.name;
+        // Первый элемент (корень системы) заменяем на иконку
+        if (idx === 0) {
+            span.innerHTML = '<span class="material-symbols-outlined align-middle" style="font-size: 18px;">hard_drive</span>';
+        } else {
+            span.innerText = crumb.name;
+        }
         
         span.onclick = () => loadPath(crumb.path);
         bc.appendChild(span);
-        if (idx < crumbs.length - 1) bc.appendChild(document.createTextNode('/'));
+        
+        // Ставим разделитель "/" между элементами
+        if (idx < crumbs.length - 1) {
+            let sep = document.createElement('span');
+            sep.className = 'text-muted user-select-none';
+            sep.innerText = '/';
+            bc.appendChild(sep);
+        }
     });
 }
 
