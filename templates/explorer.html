@@ -13,9 +13,48 @@
         <button class="btn btn-sm btn-light border d-flex align-items-center" onclick="loadPath('/')" title="В корень"><span class="material-symbols-outlined fs-5">home</span></button>
         <button class="btn btn-sm btn-light border d-flex align-items-center" onclick="goUp()" title="Вверх"><span class="material-symbols-outlined fs-5">arrow_upward</span></button>
         
-        <!-- Хлебные крошки -->
-        <div id="breadcrumbs" class="d-flex align-items-center bg-light border px-3 rounded flex-grow-1" style="height: 31px; overflow-x: auto; white-space: nowrap; font-family: monospace; font-size: 0.9rem;">
-            /
+        <!-- === ИНТЕРАКТИВНАЯ СТРОКА НАВИГАЦИИ === -->
+        <div class="d-flex align-items-center flex-grow-1 position-relative" style="min-width: 250px;">
+            <!-- Хлебные крошки (по умолчанию видимы) -->
+            <div id="breadcrumbsWrapper" class="d-flex align-items-center bg-light border px-3 rounded w-100 cursor-pointer" 
+                 style="height: 31px; overflow-x: auto; white-space: nowrap; font-family: monospace; font-size: 0.9rem;"
+                 ondblclick="togglePathEditor(true)" title="Двойной клик для ввода пути">
+                <div id="breadcrumbs" class="d-flex align-items-center w-100">/</div>
+            </div>
+            
+            <!-- Поле ручного ввода пути (скрыто) -->
+            <div id="pathEditorWrapper" class="d-flex align-items-center w-100" style="display: none !important;">
+                <input type="text" id="manualPathInput" class="form-control form-control-sm font-monospace" style="height: 31px; border-radius: 4px 0 0 4px;"
+                       onkeydown="if(event.key === 'Enter') navigateToManualPath()">
+                <button class="btn btn-sm btn-primary d-flex align-items-center justify-content-center" style="height: 31px; border-radius: 0 4px 4px 0;" onclick="navigateToManualPath()">
+                    <span class="material-symbols-outlined fs-6">arrow_forward</span>
+                </button>
+                <button class="btn btn-sm btn-light border ms-1 d-flex align-items-center justify-content-center" style="height: 31px;" onclick="togglePathEditor(false)" title="Отмена">
+                    <span class="material-symbols-outlined fs-6">close</span>
+                </button>
+            </div>
+            
+            <!-- Кнопка переключения в режим редактирования -->
+            <button id="editPathBtn" class="btn btn-sm btn-link text-secondary position-absolute end-0 me-1 p-0" onclick="togglePathEditor(true)" title="Редактировать путь">
+                <span class="material-symbols-outlined" style="font-size: 18px;">edit</span>
+            </button>
+        </div>
+
+        <div class="vr mx-1"></div>
+
+        <!-- === ЗАКЛАДКИ === -->
+        <div class="dropdown">
+            <button class="btn btn-sm btn-outline-warning d-flex align-items-center gap-1" type="button" data-bs-toggle="dropdown" title="Закладки">
+                <span class="material-symbols-outlined fs-6">star</span>
+            </button>
+            <ul class="dropdown-menu shadow" id="bookmarksMenu" style="width: 250px;">
+                <li><a class="dropdown-item d-flex align-items-center gap-2 fw-bold text-success" href="#" onclick="addBookmark()"><span class="material-symbols-outlined fs-6">star_add</span> Добавить текущую папку</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <div id="bookmarksList">
+                    <!-- Сюда JS загрузит закладки -->
+                    <li><span class="dropdown-item-text text-muted small text-center d-block">Нет закладок</span></li>
+                </div>
+            </ul>
         </div>
 
         <div class="vr mx-1"></div>
@@ -43,7 +82,7 @@
             </ul>
         </div>
         
-        <button class="btn btn-sm btn-warning d-flex align-items-center gap-1" id="pasteBtn" style="display: none;" onclick="pasteItems()"><span class="material-symbols-outlined fs-6">content_paste</span> Вставить (<span id="pasteCount">0</span>)</button>
+        <button class="btn btn-sm btn-warning align-items-center gap-1" id="pasteBtn" style="display: none;" onclick="pasteItems()"><span class="material-symbols-outlined fs-6">content_paste</span> Вставить (<span id="pasteCount">0</span>)</button>
     </div>
 
     <!-- Таблица файлов -->
@@ -59,7 +98,7 @@
                 </tr>
             </thead>
             <tbody id="fileList">
-                <tr><td colspan="5" class="text-center py-5 text-muted">Загрузка...</td></tr>
+                <tr><td colspan="5" class="text-center py-5 text-muted"><div class="spinner-border text-primary" role="status"></div><br>Загрузка файлов...</td></tr>
             </tbody>
         </table>
     </div>
@@ -88,5 +127,330 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/explorer.js"></script>
+<script>
+let currentPath = '/';
+let clipboard = { action: null, paths: [] };
+let textEditorModal = null;
+let bookmarks = JSON.parse(localStorage.getItem('zx_explorer_bookmarks')) || [];
+
+document.addEventListener('DOMContentLoaded', () => {
+    const modalEl = document.getElementById('textEditorModal');
+    if (modalEl) textEditorModal = new bootstrap.Modal(modalEl);
+    renderBookmarks(); // Загружаем закладки
+    loadPath('/');
+});
+
+// Форматирование размера
+function formatBytes(bytes) {
+    if (bytes === 0) return '-';
+    const k = 1024, sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// === УПРАВЛЕНИЕ НАВИГАЦИЕЙ ===
+function togglePathEditor(showEditor) {
+    const bcWrapper = document.getElementById('breadcrumbsWrapper');
+    const editorWrapper = document.getElementById('pathEditorWrapper');
+    const editBtn = document.getElementById('editPathBtn');
+    const input = document.getElementById('manualPathInput');
+
+    if (showEditor) {
+        bcWrapper.style.setProperty('display', 'none', 'important');
+        editBtn.style.display = 'none';
+        editorWrapper.style.setProperty('display', 'flex', 'important');
+        input.value = currentPath;
+        input.focus();
+        input.select();
+    } else {
+        editorWrapper.style.setProperty('display', 'none', 'important');
+        bcWrapper.style.setProperty('display', 'flex', 'important');
+        editBtn.style.display = 'inline-block';
+    }
+}
+
+function navigateToManualPath() {
+    const input = document.getElementById('manualPathInput');
+    const newPath = input.value.trim() || '/';
+    togglePathEditor(false);
+    loadPath(newPath);
+}
+
+// === УПРАВЛЕНИЕ ЗАКЛАДКАМИ ===
+function renderBookmarks() {
+    const list = document.getElementById('bookmarksList');
+    list.innerHTML = '';
+    
+    if (bookmarks.length === 0) {
+        list.innerHTML = '<li><span class="dropdown-item-text text-muted small text-center d-block">Нет закладок</span></li>';
+        return;
+    }
+
+    bookmarks.forEach((bm, index) => {
+        const li = document.createElement('li');
+        li.className = 'd-flex align-items-center justify-content-between px-2 py-1 dropdown-item';
+        
+        li.innerHTML = `
+            <div class="d-flex align-items-center gap-2 cursor-pointer text-truncate" onclick="loadPath('${bm}')" style="max-width: 180px;" title="${bm}">
+                <span class="material-symbols-outlined text-warning" style="font-size: 16px;">folder_special</span>
+                <span class="font-monospace small">${bm}</span>
+            </div>
+            <span class="material-symbols-outlined text-danger cursor-pointer ms-2" style="font-size: 16px;" onclick="removeBookmark(${index})" title="Удалить закладку">close</span>
+        `;
+        list.appendChild(li);
+    });
+}
+
+function addBookmark() {
+    if (!bookmarks.includes(currentPath)) {
+        bookmarks.push(currentPath);
+        localStorage.setItem('zx_explorer_bookmarks', JSON.stringify(bookmarks));
+        renderBookmarks();
+    }
+}
+
+function removeBookmark(index) {
+    bookmarks.splice(index, 1);
+    localStorage.setItem('zx_explorer_bookmarks', JSON.stringify(bookmarks));
+    renderBookmarks();
+    
+    // Предотвращаем закрытие меню Dropdown при клике на крестик
+    event.stopPropagation();
+}
+
+// Загрузка папки
+async function loadPath(path) {
+    const tbody = document.getElementById('fileList');
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5"><div class="spinner-border text-primary" role="status"></div></td></tr>';
+    try {
+        const res = await fetch('/api/explorer/list', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ path: path })
+        });
+        
+        if (res.status === 401) { location.reload(); return; }
+        if (!res.ok) { 
+            tbody.innerHTML = `<tr><td colspan="5" class="text-center py-5 text-danger fw-bold">Ошибка сервера (${res.status}). Убедитесь, что код добавлен в server.py.</td></tr>`;
+            return; 
+        }
+        
+        const data = await res.json();
+        if (data.success) {
+            currentPath = data.path;
+            renderBreadcrumbs(data.breadcrumbs);
+            renderFiles(data.items);
+            updateSelectionState();
+        } else { 
+            tbody.innerHTML = `<tr><td colspan="5" class="text-center py-5 text-danger fw-bold">Ошибка: ${data.error}</td></tr>`;
+            // Если путь ошибочный, возвращаем хлебные крошки в рабочее состояние на корень
+            currentPath = '/';
+            renderBreadcrumbs([{name: "/", path: "/"}]);
+        }
+    } catch (e) { 
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center py-5 text-danger fw-bold">Сбой сети или сервер не отвечает.</td></tr>`;
+    }
+}
+
+function goUp() {
+    if (currentPath !== '/') {
+        let parent = currentPath.substring(0, currentPath.lastIndexOf('/')) || '/';
+        loadPath(parent);
+    }
+}
+
+function renderBreadcrumbs(crumbs) {
+    const bc = document.getElementById('breadcrumbs');
+    bc.innerHTML = '';
+    crumbs.forEach((crumb, idx) => {
+        let span = document.createElement('span');
+        span.className = 'cursor-pointer text-primary text-decoration-underline mx-1';
+        
+        // Заменяем "Root" на слэш
+        span.innerText = crumb.name === 'Root' ? '/' : crumb.name;
+        
+        span.onclick = () => loadPath(crumb.path);
+        bc.appendChild(span);
+        if (idx < crumbs.length - 1) bc.appendChild(document.createTextNode('/'));
+    });
+}
+
+function renderFiles(items) {
+    const tbody = document.getElementById('fileList');
+    tbody.innerHTML = '';
+    document.getElementById('selectAll').checked = false;
+
+    if (items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">Папка пуста</td></tr>';
+        return;
+    }
+
+    items.forEach(item => {
+        const tr = document.createElement('tr');
+        let icon = item.is_dir ? '<span class="material-symbols-outlined text-warning align-middle">folder</span>' : '<span class="material-symbols-outlined text-secondary align-middle">draft</span>';
+        if (item.name.endsWith('.zip')) icon = '<span class="material-symbols-outlined text-danger align-middle">folder_zip</span>';
+        
+        let clickAction = item.is_dir ? `onclick="loadPath('${item.path}')"` : `onclick="openTextEditor('${item.path}')"`;
+        
+        let downloadBtn = item.is_dir ? '' : `<a href="/api/explorer/download?path=${encodeURIComponent(item.path)}" class="btn btn-sm btn-light border p-1 d-flex align-items-center justify-content-center" title="Скачать"><span class="material-symbols-outlined fs-6">download</span></a>`;
+        let unzipBtn = item.name.endsWith('.zip') ? `<button class="btn btn-sm btn-light border p-1 ms-1 d-flex align-items-center justify-content-center" onclick="extractArchive('${item.path}')" title="Распаковать"><span class="material-symbols-outlined fs-6">unarchive</span></button>` : '';
+
+        tr.innerHTML = `
+            <td class="text-center"><input type="checkbox" class="form-check-input item-chk" value="${item.path}" onchange="updateSelectionState()"></td>
+            <td>
+                <div class="d-flex align-items-center gap-2 cursor-pointer" ${clickAction}>
+                    ${icon} <span class="text-truncate" style="max-width: 300px; font-weight: 500;">${item.name}</span>
+                </div>
+            </td>
+            <td class="text-muted small">${formatBytes(item.size)}</td>
+            <td class="text-muted small">${item.mtime}</td>
+            <td class="text-center d-flex justify-content-center">
+                ${downloadBtn} ${unzipBtn}
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// === ВЫДЕЛЕНИЕ И ОПЕРАЦИИ ===
+function toggleSelectAll(masterChk) {
+    document.querySelectorAll('.item-chk').forEach(chk => chk.checked = masterChk.checked);
+    updateSelectionState();
+}
+
+function updateSelectionState() {
+    const checked = document.querySelectorAll('.item-chk:checked');
+    document.getElementById('actionBtn').disabled = checked.length === 0;
+}
+
+function getSelectedPaths() {
+    return Array.from(document.querySelectorAll('.item-chk:checked')).map(chk => chk.value);
+}
+
+async function doOperation(action, paths, dest, newName) {
+    if (!dest) dest = currentPath;
+    if (!newName) newName = '';
+    try {
+        const res = await fetch('/api/explorer/operate', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: action, paths: paths, dest: dest, new_name: newName })
+        });
+        const data = await res.json();
+        if (data.success) {
+            loadPath(currentPath);
+            return true;
+        } else { alert("Ошибка: " + data.error); return false; }
+    } catch(e) { alert("Сбой сети"); return false; }
+}
+
+function promptCreate(type) {
+    let name = prompt(`Введите имя ${type === 'folder' ? 'папки' : 'файла'}:`);
+    if (name) doOperation(`create_${type}`, [], currentPath, name);
+}
+
+function promptRename() {
+    const paths = getSelectedPaths();
+    if (paths.length !== 1) { alert("Выберите только один элемент для переименования."); return; }
+    let currentName = paths[0].split('/').pop();
+    let newName = prompt("Новое имя:", currentName);
+    if (newName && newName !== currentName) doOperation('rename', paths, currentPath, newName);
+}
+
+function deleteSelected() {
+    const paths = getSelectedPaths();
+    if (confirm(`Удалить навсегда ${paths.length} элементов?`)) doOperation('delete', paths);
+}
+
+function archiveSelected() {
+    const paths = getSelectedPaths();
+    let name = prompt("Введите имя архива (например, backup.zip):", "archive.zip");
+    if (name) doOperation('zip', paths, currentPath, name);
+}
+
+function extractArchive(path) {
+    doOperation('unzip', [path], currentPath);
+}
+
+// === БУФЕР ОБМЕНА ===
+function copyCutSelected(action) {
+    clipboard = { action: action, paths: getSelectedPaths() };
+    const pBtn = document.getElementById('pasteBtn');
+    document.getElementById('pasteCount').innerText = clipboard.paths.length;
+    pBtn.style.display = 'flex';
+    pBtn.className = action === 'copy' ? 'btn btn-sm btn-primary align-items-center gap-1' : 'btn btn-sm btn-warning align-items-center gap-1';
+    
+    document.querySelectorAll('.item-chk').forEach(c => c.checked = false);
+    updateSelectionState();
+}
+
+async function pasteItems() {
+    if (clipboard.paths.length === 0) return;
+    let success = await doOperation(clipboard.action, clipboard.paths, currentPath);
+    if (success && clipboard.action === 'cut') {
+        clipboard = { action: null, paths: [] };
+        document.getElementById('pasteBtn').style.display = 'none';
+    }
+}
+
+// === ЗАГРУЗКА ФАЙЛОВ ===
+async function uploadFiles(input) {
+    if (input.files.length === 0) return;
+    const formData = new FormData();
+    formData.append('dest', currentPath);
+    for (let i = 0; i < input.files.length; i++) {
+        formData.append('files[]', input.files[i]);
+    }
+    
+    document.getElementById('fileList').innerHTML = '<tr><td colspan="5" class="text-center py-5 text-success"><div class="spinner-border spinner-border-sm"></div> Загрузка файлов...</td></tr>';
+    
+    try {
+        const res = await fetch('/api/explorer/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!data.success) alert("Ошибка загрузки: " + data.error);
+    } catch(e) { alert("Сбой сети при загрузке"); }
+    
+    input.value = ''; 
+    loadPath(currentPath);
+}
+
+// === ТЕКСТОВЫЙ РЕДАКТОР ===
+async function openTextEditor(path) {
+    document.getElementById('editorFilePath').value = path;
+    document.getElementById('editorContent').value = "Чтение файла...";
+    document.getElementById('editorStatus').innerText = "";
+    textEditorModal.show();
+
+    try {
+        const res = await fetch('/api/read_file', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path })
+        });
+        const data = await res.json();
+        if (data.success) document.getElementById('editorContent').value = data.content;
+        else document.getElementById('editorContent').value = "Ошибка: " + data.error;
+    } catch (e) { document.getElementById('editorContent').value = "Сбой сети."; }
+}
+
+async function saveTextFile() {
+    const path = document.getElementById('editorFilePath').value;
+    const content = document.getElementById('editorContent').value;
+    const status = document.getElementById('editorStatus');
+    
+    status.innerHTML = '<span class="text-warning">Сохранение...</span>';
+    
+    try {
+        const res = await fetch('/api/explorer/save_text', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path, content: content })
+        });
+        const data = await res.json();
+        if (data.success) {
+            status.innerHTML = '<span class="text-success fw-bold">✓ Успешно сохранено</span>';
+            loadPath(currentPath); 
+            setTimeout(() => status.innerText = "", 3000);
+        }
+        else status.innerHTML = `<span class="text-danger">Ошибка: ${data.error}</span>`;
+    } catch (e) { status.innerHTML = '<span class="text-danger">Сбой сети.</span>'; }
+}
+</script>
 {% endblock %}
