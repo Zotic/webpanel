@@ -1132,9 +1132,14 @@ def api_system_logs():
     lines = filters.get('lines', 300) 
     priority = filters.get('priority', 'all')
     search = filters.get('search', '').lower()
+    mode = filters.get('mode', 'services') # 'services' или 'syslog'
     
     lines_safe = shlex.quote(str(int(lines)))
+    
+    # Базовая команда journalctl
     cmd = f"journalctl -r -n {lines_safe} -o json"
+    
+    # Фильтрация по приоритету
     if priority == 'error': cmd += " -p 0..3"
     elif priority == 'warning': cmd += " -p 4"
     elif priority == 'info': cmd += " -p 5..7"
@@ -1146,23 +1151,37 @@ def api_system_logs():
             if not line.strip(): continue
             try:
                 entry = json.loads(line)
+                
+                source = entry.get('SYSLOG_IDENTIFIER', entry.get('_SYSTEMD_UNIT', 'unknown'))
+                
+                # Если режим 'services', игнорируем системные штуки (оставляем только .service файлы и юзерские приложения)
+                # Если режим 'syslog', берем всё (ядро, sshd, cron и т.д.)
+                if mode == 'services':
+                    if source in ['kernel', 'systemd', 'CRON', 'sshd', 'sudo', 'su'] or not source:
+                        continue
+
                 msg = entry.get('MESSAGE', '')
                 if isinstance(msg, list): msg = bytes(msg).decode('utf-8', errors='replace')
                 elif not isinstance(msg, str): msg = str(msg)
                 msg = clean_logs(msg)
-                source = entry.get('SYSLOG_IDENTIFIER', entry.get('_SYSTEMD_UNIT', 'unknown'))
+                
                 if search and search not in msg.lower() and search not in source.lower(): continue
+                
                 timestamp = int(entry.get('__REALTIME_TIMESTAMP', 0)) // 1000000
                 date_str = datetime.fromtimestamp(timestamp).strftime('%d.%m %H:%M:%S') if timestamp else ""
+                
                 prio_num = int(entry.get('PRIORITY', 6))
                 if prio_num <= 3: prio_str = "ERROR"
                 elif prio_num == 4: prio_str = "WARNING"
                 else: prio_str = "INFO"
+                
                 logs.append({"time": date_str, "priority": prio_str, "source": source, "message": msg})
             except: pass
+            
         return jsonify({"success": True, "logs": logs})
-    except Exception as e: return jsonify({"success": False, "error": str(e)})
-
+    except Exception as e: 
+        return jsonify({"success": False, "error": str(e)})
+    
 @app.route('/api/vpn_users', methods=['GET'])
 @login_required
 def api_vpn_users():

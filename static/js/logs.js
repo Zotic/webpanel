@@ -9,14 +9,23 @@ let selectedSources = new Set(); // Хранит выбранные галочк
 async function fetchLogs() {
     const priority = document.getElementById('logPriority').value;
     const search = document.getElementById('logSearch').value;
-    const lines = document.getElementById('logLines').value; // Читаем выбор количества строк
+    const lines = document.getElementById('logLines').value;
+    const mode = document.getElementById('logMode').value; // Читаем режим
+    
     const tbody = document.getElementById('logsTableBody');
+    // Показываем индикатор загрузки
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-5 text-muted"><div class="spinner-border text-primary" role="status"></div><br>Чтение логов сервера...</td></tr>';
 
     try {
         const res = await fetch('/api/system_logs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ priority: priority, search: search, lines: parseInt(lines) })
+            body: JSON.stringify({ 
+                priority: priority, 
+                search: search, 
+                lines: parseInt(lines),
+                mode: mode // Отправляем режим на сервер
+            })
         });
         
         if (res.status === 401) { location.reload(); return; }
@@ -26,9 +35,11 @@ async function fetchLogs() {
             allLoadedLogs = data.logs;
             updateSourceFilters(); // Обновляем список галочек
             renderLogs();          // Отрисовываем таблицу
+        } else {
+            tbody.innerHTML = `<tr><td colspan="4" class="text-center py-5 text-danger fw-bold">Ошибка: ${data.error}</td></tr>`;
         }
     } catch (e) {
-        console.error("Ошибка загрузки логов:", e);
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-5 text-danger fw-bold">Сбой сети.</td></tr>';
     }
 }
 

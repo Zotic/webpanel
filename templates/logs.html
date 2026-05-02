@@ -2,9 +2,16 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <h2 class="fw-bold text-secondary mb-0">Системные логи</h2>
+    <h2 class="fw-bold text-secondary mb-0">Логи</h2>
     
     <div class="d-flex flex-wrap gap-2 flex-grow-1 justify-content-lg-end align-items-center">
+        
+        <!-- НОВЫЙ ФИЛЬТР: РЕЖИМ ЛОГИРОВАНИЯ -->
+        <select id="logMode" class="form-select shadow-sm fw-bold border-primary" style="width: auto; border-radius: 8px;" onchange="fetchLogs()">
+            <option value="services" selected>🛠 Службы и Боты</option>
+            <option value="syslog">💻 Весь Syslog (Ядро, SSH, Cron)</option>
+        </select>
+        
         <!-- Выбор количества строк -->
         <select id="logLines" class="form-select shadow-sm" style="width: auto; border-radius: 8px;" onchange="fetchLogs()">
             <option value="100">100 строк</option>
