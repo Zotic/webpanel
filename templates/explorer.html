@@ -270,7 +270,7 @@ async function loadPath(path) {
         } else { 
             tbody.innerHTML = `<tr><td colspan="5" class="text-center py-5 text-danger fw-bold">Ошибка: ${data.error}</td></tr>`;
             currentPath = '/';
-            renderBreadcrumbs([{name: "", path: "/"}]);
+            renderBreadcrumbs([{name: "Root", path: "/"}]);
         }
     } catch (e) { 
         tbody.innerHTML = `<tr><td colspan="5" class="text-center py-5 text-danger fw-bold">Сбой сети или сервер не отвечает.</td></tr>`;
