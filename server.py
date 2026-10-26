@@ -902,9 +902,13 @@ def logout():
     session.pop('logged_in', None)
     return redirect(url_for('login'))
 
+
 @app.route('/')
+def index(): return render_template('index.html')
+
+@app.route('/settings')
 @login_required
-def index():
+def client():
     stats = get_nginx_unique_stats()
     return render_template('site_stats.html', 
                            server_uptime=get_site_uptime(),
@@ -915,7 +919,7 @@ def index():
 
 @app.route('/site_stats')
 @login_required
-def site_stats_page(): return redirect(url_for('index'))
+def site_stats_page(): return redirect(url_for('cleint'))
 
 @app.route('/bots')
 @login_required
