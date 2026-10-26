@@ -900,7 +900,7 @@ def login():
 @app.route('/logout')
 def logout():
     session.pop('logged_in', None)
-    return redirect(url_for('login'))
+    return redirect(url_for('index'))
 
 
 @app.route('/')
@@ -919,7 +919,7 @@ def client():
 
 @app.route('/site_stats')
 @login_required
-def site_stats_page(): return redirect(url_for('cleint'))
+def site_stats_page(): return redirect(url_for('client'))
 
 @app.route('/bots')
 @login_required
