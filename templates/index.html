@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZX Apps | Каталог проектов</title>
+    <meta name="description" content="Каталог разработанных систем автоматизации, ботов и серверных панелей.">
+    
+    <!-- Иконка для вкладки браузера -->
+    <link rel="icon" type="image/svg+xml" href="static/zx_logo.svg">
+    <link rel="shortcut icon" href="static/zx_logo.svg">
+    
+    <!-- Подключение шрифтов Material Design -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <style>
+        /* Темная цветовая палитра на основе логотипа */
+        :root {
+            --primary: #a855f7;
+            --primary-light: #c084fc;
+            --bg-dark: #121212;
+            --surface: #1e1e1e;
+            --surface-hover: #2c2c2c;
+            --text-primary: #ffffff;
+            --text-secondary: #aaaaaa;
+            --shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Roboto', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+
+        /* Анимированный фон (Градиентные пятна) */
+        .bg-glow {
+            position: fixed;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, rgba(18, 18, 18, 0) 70%);
+            border-radius: 50%;
+            top: -200px;
+            left: -200px;
+            z-index: -1;
+            animation: float 10s infinite alternate ease-in-out;
+            pointer-events: none;
+        }
+        .bg-glow:nth-child(2) {
+            top: auto;
+            bottom: -200px;
+            left: auto;
+            right: -200px;
+            background: radial-gradient(circle, rgba(126, 34, 206, 0.12) 0%, rgba(18, 18, 18, 0) 70%);
+            animation-delay: -5s;
+        }
+
+        @keyframes float {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(40px, 40px); }
+        }
+
+        /* Навигация (Glassmorphism) */
+        header {
+            padding: 16px 5%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between; /* Изменено: расталкиваем логотип и настройки по краям */
+            background: rgba(18, 18, 18, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .logo {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            object-fit: cover;
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.4);
+            transition: var(--transition);
+        }
+
+        .logo-container:hover .logo {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.6);
+        }
+
+        .brand-name {
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: var(--text-primary);
+        }
+
+        /* Кнопка настроек */
+        .settings-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 44px; /* Тот же размер, что и у логотипа */
+            height: 44px;
+            border-radius: 50%;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: var(--transition);
+            background: transparent;
+        }
+
+        .settings-btn .material-icons {
+            font-size: 26px;
+            transition: transform 0.5s ease; /* Плавное вращение */
+        }
+
+        .settings-btn:hover {
+            color: var(--primary-light);
+            background: rgba(168, 85, 247, 0.1);
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.2);
+        }
+
+        .settings-btn:hover .material-icons {
+            transform: rotate(90deg); /* Эффект вращения шестеренки */
+        }
+
+        /* Главный экран */
+        .hero {
+            min-height: 50vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 60px 20px;
+            opacity: 0;
+            transform: translateY(30px);
+            animation: fadeUp 1s forwards ease-out;
+        }
+
+        .hero h1 {
+            font-size: 3.2rem;
+            margin-bottom: 20px;
+            background: linear-gradient(45deg, var(--primary-light), var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 700;
+        }
+
+        .hero p {
+            font-size: 1.15rem;
+            color: var(--text-secondary);
+            max-width: 650px;
+            margin-bottom: 40px;
+        }
+
+        /* Сетка проектов */
+        .projects-section {
+            padding: 20px 5% 80px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 28px;
+        }
+
+        /* Карточка Material Design */
+        .card {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+            opacity: 0;
+            transform: translateY(40px);
+            border: 1px solid rgba(255,255,255,0.03);
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: var(--primary);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.4s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-8px);
+            background: var(--surface-hover);
+            box-shadow: 0 15px 35px rgba(168, 85, 247, 0.15);
+            border-color: rgba(255,255,255,0.08);
+        }
+
+        .card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .card-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 52px;
+            height: 52px;
+            background: rgba(168, 85, 247, 0.1);
+            color: var(--primary-light);
+            border-radius: 14px;
+            font-size: 28px;
+        }
+
+        .card-title {
+            font-size: 1.3rem;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .card-desc {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        /* Анимации появления (Intersection Observer) */
+        .visible {
+            opacity: 1 !important;
+            transform: translateY(0) !important;
+        }
+
+        @keyframes fadeUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px;
+            color: rgba(255, 255, 255, 0.3);
+            border-top: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.4rem; }
+            .hero p { font-size: 1rem; }
+            .grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Фоновые элементы -->
+    <div class="bg-glow"></div>
+    <div class="bg-glow"></div>
+
+    <header>
+        <!-- Ссылка на главную страницу -->
+        <a href="/" class="logo-container">
+            <img src="zx_logo.svg" alt="ZX Apps Logo" class="logo">
+            <div class="brand-name">ZX Apps</div>
+        </a>
+        
+        <!-- Ссылка на настройки -->
+        <a href="/settings" class="settings-btn" title="Настройки">
+            <span class="material-icons">settings</span>
+        </a>
+    </header>
+
+    <main>
+        <section class="hero">
+            <h1>Каталог проектов</h1>
+            <p>Подборка разработанных систем автоматизации, интеллектуальных ботов и утилит для серверного администрирования.</p>
+        </section>
+
+        <section class="projects-section">
+            <div class="grid">
+                
+                <!-- Server -->
+                <div class="card observe">
+                    <div class="card-header">
+                        <div class="card-icon"><span class="material-icons">dns</span></div>
+                        <h3 class="card-title">ZX Server Panel</h3>
+                    </div>
+                    <p class="card-desc">Полнофункциональная панель на базе Flask для администрирования Linux-серверов. Реализован мониторинг процессов, встроенный файловый менеджер (ZX Explorer), интеграция с Fail2ban и система управления пропускной способностью сети (Traffic Control).</p>
+                </div>
+
+                <!-- Soraka -->
+                <div class="card observe" style="transition-delay: 0.1s;">
+                    <div class="card-header">
+                        <div class="card-icon"><span class="material-icons">smart_toy</span></div>
+                        <h3 class="card-title">Galactic Soraka</h3>
+                    </div>
+                    <p class="card-desc">Интеллектуальный Telegram-ассистент, функционирующий на базе нейросетевых моделей (LLM). Система поддерживает удержание контекста диалога, интеграцию с локальными базами данных SQLite и автоматическую маршрутизацию запросов.</p>
+                </div>
+
+                <!-- Ahsoka Ecosystem -->
+                <div class="card observe" style="transition-delay: 0.2s;">
+                    <div class="card-header">
+                        <div class="card-icon"><span class="material-icons">dynamic_feed</span></div>
+                        <h3 class="card-title">Ahsoka Ecosystem</h3>
+                    </div>
+                    <p class="card-desc">Многокомпонентная CRM-система для управления графическим контентом во ВКонтакте. Осуществляет структурированный поиск по внутренней базе данных, управляет отложенным постингом и автоматически формирует расписание публикаций.</p>
+                </div>
+
+                <!-- YT_DL -->
+                <div class="card observe" style="transition-delay: 0.3s;">
+                    <div class="card-header">
+                        <div class="card-icon"><span class="material-icons">video_library</span></div>
+                        <h3 class="card-title">ZX Media Downloader</h3>
+                    </div>
+                    <p class="card-desc">Telegram-утилита для многопоточной загрузки медиаконтента. Оснащена алгоритмами автоматической записи прямых трансляций с динамическим контролем размера выходного файла для соответствия лимитам мессенджера.</p>
+                </div>
+
+                <!-- R34 -->
+                <div class="card observe" style="transition-delay: 0.4s;">
+                    <div class="card-header">
+                        <div class="card-icon"><span class="material-icons">data_exploration</span></div>
+                        <h3 class="card-title">Content Aggregator</h3>
+                    </div>
+                    <p class="card-desc">Система автоматического парсинга и агрегации графического контента из внешних API. Включает сложную фильтрацию по тегам, кэширование отправленных данных и встроенную конвертацию форматов с использованием подсистемы FFmpeg.</p>
+                </div>
+
+                <!-- Zotic -->
+                <div class="card observe" style="transition-delay: 0.5s;">
+                    <div class="card-header">
+                        <div class="card-icon"><span class="material-icons">security</span></div>
+                        <h3 class="card-title">ZX Discord Shield</h3>
+                    </div>
+                    <p class="card-desc">Бот-модератор для серверов Discord. Специализируется на эвристическом анализе сообщений для выявления и моментального удаления фишинговых ссылок, обеспечивая автоматизированную защиту пользователей платформы от вредоносных ресурсов.</p>
+                </div>
+
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>ZX Apps &copy; 2018-2026</p>
+    </footer>
+
+    <script>
+        // JS для оптимизированной анимации появления при скролле
+        document.addEventListener("DOMContentLoaded", () => {
+            const observerOptions = {
+                root: null,
+                rootMargin: '0px',
+                threshold: 0.15
+            };
+
+            const observer = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, observerOptions);
+
+            const cards = document.querySelectorAll('.observe');
+            cards.forEach(card => observer.observe(card));
+        });
+    </script>
+</body>
+</html>
