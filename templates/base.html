@@ -33,7 +33,7 @@
     </a>
     <div class="sidebar-nav pt-3">
         <!-- Главная страница на первом месте -->
-        <a href="/" class="nav-link {% if request.path == '/' or request.path == '/site_stats' %}active{% endif %}">
+        <a href="/settings" class="nav-link {% if request.path == '/settings' or request.path == '/site_stats' %}active{% endif %}">
             <span class="material-symbols-outlined">public</span> Главная
         </a>
         <a href="/bots" class="nav-link {% if request.path == '/bots' %}active{% endif %}">
